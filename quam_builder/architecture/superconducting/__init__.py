@@ -10,7 +10,7 @@ from .components import (
 from .custom_gates import CZGate
 from .qpu import BaseQuam, FixedFrequencyQuam, FluxTunableQuam, CavityQuam
 from .qubit import BaseTransmon, FixedFrequencyTransmon, FluxTunableTransmon
-from .qubit_pair import FixedFrequencyTransmonPair, FluxTunableTransmonPair
+from .qubit_pair import FixedFrequencyTransmonPair, FluxTunableTransmonPair, CavityTransmonPair
 from .cavity import Cavity, CavityMode
 
 __all__ = [

@@ -4,10 +4,6 @@ from logging import getLogger
 
 from quam.core import quam_dataclass
 from quam.components.quantum_components import Qubit
-from quam_builder.architecture.superconducting.components.readout_resonator import (
-    ReadoutResonatorIQ,
-    ReadoutResonatorMW,
-)
 from quam_builder.architecture.superconducting.components.xy_drive import (
     XYDriveIQ,
     XYDriveMW,
@@ -76,19 +72,15 @@ class CavityMode(Qubit):
 
     id: Union[int, str]
 
-    xy: Union[XYDriveIQ, XYDriveMW] = None
-    f0g1: Union[XYDriveIQ, XYDriveMW] = None
+    cavity_mode_drive: Union[XYDriveIQ, XYDriveMW] = None
 
     T1: float = None
     T2ramsey: float = None
     T2echo: float = None
     thermalization_time_factor: int = 5
-    sigma_time_factor: int = 5
 
-    GEF_frequency_shift: int = None
     chi: float = None
-    grid_location: str = None
-    gate_fidelity: Dict[str, Any] = field(default_factory=dict)
+    """Dispersive shift of this cavity mode to the transmon [Hz]."""
     extras: Dict[str, Any] = field(default_factory=dict)
 
     @property

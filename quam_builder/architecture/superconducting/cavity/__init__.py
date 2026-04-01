@@ -11,4 +11,4 @@ __all__ = [
     *cavity_mode.__all__,
 ]
 
-AnyTransmonPair = Union[Cavity, CavityMode]
+AnyCavity = Union[Cavity, CavityMode]

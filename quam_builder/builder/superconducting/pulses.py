@@ -291,6 +291,142 @@ def add_default_transmon_pulses(
             )
 
 
+def add_EF_DragCosine_pulses(
+    transmon: Union[FixedFrequencyTransmon, FluxTunableTransmon],
+    amplitude: float,
+    length: int,
+    alpha: float,
+    detuning: float,
+    anharmonicity: float = None,
+    digital_marker: str = None,
+):
+    """Adds a set of DragCosine EF gates to transmon.xy.operations.
+
+    EF pulses share the same xy drive channel as GE pulses.  The QUA program
+    must call qubit.xy.update_frequency(qubit.xy.intermediate_frequency +
+    qubit.anharmonicity) before playing any EF gate, then reset afterwards.
+
+    Creates: EF_x180, EF_x90, EF_-x90, EF_y180, EF_y90, EF_-y90.
+
+    Args:
+        transmon: A transmon qubit instance with a .xy attribute.
+        amplitude (float): Amplitude of the EF_x180 pulse in Volts.
+        length (int): Length of the EF_x180 pulse in ns.
+        alpha (float): DRAG coefficient.
+        detuning (float): Detuning for DRAG pulses in Hz.
+        anharmonicity (float): Anharmonicity in Hz; defaults to transmon.anharmonicity.
+        digital_marker (str, optional): Digital marker name, or None.
+    """
+    if transmon.xy is None:
+        return
+
+    if anharmonicity is None:
+        anharmonicity = f"#/qubits/{transmon.name}/anharmonicity"
+
+    transmon.xy.operations["EF_x180"] = pulses.DragCosinePulse(
+        length=length,
+        amplitude=amplitude,
+        alpha=alpha,
+        anharmonicity=anharmonicity,
+        detuning=detuning,
+        digital_marker=digital_marker,
+        axis_angle=0,
+    )
+    transmon.xy.operations["EF_x90"] = pulses.DragCosinePulse(
+        length="#../EF_x180/length",
+        amplitude=amplitude / 2,
+        alpha="#../EF_x180/alpha",
+        anharmonicity="#../EF_x180/anharmonicity",
+        detuning="#../EF_x180/detuning",
+        digital_marker="#../EF_x180/digital_marker",
+        axis_angle=0,
+    )
+    transmon.xy.operations["EF_-x90"] = pulses.DragCosinePulse(
+        length="#../EF_x180/length",
+        amplitude="#../EF_x90/amplitude",
+        alpha="#../EF_x180/alpha",
+        anharmonicity="#../EF_x180/anharmonicity",
+        detuning="#../EF_x180/detuning",
+        digital_marker="#../EF_x180/digital_marker",
+        axis_angle=np.pi,
+    )
+    transmon.xy.operations["EF_y180"] = pulses.DragCosinePulse(
+        length="#../EF_x180/length",
+        amplitude="#../EF_x180/amplitude",
+        alpha="#../EF_x180/alpha",
+        anharmonicity="#../EF_x180/anharmonicity",
+        detuning="#../EF_x180/detuning",
+        digital_marker="#../EF_x180/digital_marker",
+        axis_angle=np.pi / 2,
+    )
+    transmon.xy.operations["EF_y90"] = pulses.DragCosinePulse(
+        length="#../EF_x180/length",
+        amplitude="#../EF_x90/amplitude",
+        alpha="#../EF_x90/alpha",
+        anharmonicity="#../EF_x180/anharmonicity",
+        detuning="#../EF_x90/detuning",
+        digital_marker="#../EF_x180/digital_marker",
+        axis_angle=np.pi / 2,
+    )
+    transmon.xy.operations["EF_-y90"] = pulses.DragCosinePulse(
+        length="#../EF_x180/length",
+        amplitude="#../EF_x90/amplitude",
+        alpha="#../EF_x90/alpha",
+        anharmonicity="#../EF_x180/anharmonicity",
+        detuning="#../EF_x90/detuning",
+        digital_marker="#../EF_x180/digital_marker",
+        axis_angle=-np.pi / 2,
+    )
+
+
+def add_selective_x180_pulse(
+    transmon,
+    amplitude: float,
+    length: int,
+    digital_marker: str = None,
+):
+    """Adds a selective_x180 SquarePulse to transmon.xy.operations.
+
+    A long square pulse at the ge frequency provides narrow bandwidth (1/length),
+    enabling photon-number-resolved single-qubit rotations.
+
+    Args:
+        transmon: A transmon qubit instance with a .xy attribute.
+        amplitude (float): Pulse amplitude in Volts.
+        length (int): Pulse length in ns (e.g. 10000 for 10 us → ~100 kHz bandwidth).
+    """
+    if transmon.xy is not None:
+        transmon.xy.operations["selective_x180"] = pulses.SquarePulse(
+            length=length,
+            amplitude=amplitude,
+            axis_angle=0,
+            digital_marker=digital_marker
+        )
+
+
+def add_cavity_mode_displacement_pulse(
+    cavity_mode,
+    amplitude: float,
+    length: int,
+    digital_marker: str = None,
+):
+    """Adds a displacement SquarePulse to cavity_mode.cavity_mode_drive.operations.
+
+    Args:
+        cavity_mode: A CavityMode instance with a .cavity_mode_drive attribute.
+        amplitude (float): Pulse amplitude in Volts.
+        length (int): Pulse length in ns.
+    """
+    drive = getattr(cavity_mode, "cavity_mode_drive", None)
+    if drive is not None:
+        drive.operations["displacement"] = pulses.SquarePulse(
+            length=length,
+            amplitude=amplitude,
+            axis_angle=0,
+            digital_marker=digital_marker
+        )
+
+
 def add_default_transmon_pair_pulses(
     transmon_pair: Union[FixedFrequencyTransmonPair, FluxTunableTransmonPair]
 ):
