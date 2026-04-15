@@ -49,14 +49,23 @@ class CavityTransmonPair(QuamComponent):
                           Must match a key in the QUAM root ``qubits`` dict.
         cavity_mode_name: Name of the cavity mode (e.g. ``"alice"`` or ``"bob"``).
                           Must match a key in the parent ``Cavity`` object.
-        chi:              Dispersive shift χ/2π [Hz].
-                          Convention: ω_q(n) = ω_q − 2χ·n, where n is the cavity
-                          photon number.  Calibrated by nodes 26 / 28 / 29.
+        chi:              Hamiltonian dispersive coupling constant χ/(2π) [Hz],
+                          defined by H/ħ = χ a†a σz.
+                          The qubit transition shifts by 2χ per cavity photon:
+                          ω_q(n) = ω_q + 2χ·n.  PNRS peak spacing = 2*chi.
+                          Calibrated by nodes 24 / 25 / 28.
                           ``None`` until first calibration.
         displacement_k:   Displacement calibration constant k such that the mean
                           photon number n̄ = k · A², where A is the
                           ``displacement`` pulse ``amplitude_scale``.
                           Calibrated by node 28 or 30.  ``None`` until first calibration.
+        parity_time:      Experimentally calibrated parity time τ [seconds] for
+                          Wigner tomography.  This is the dispersive Ramsey wait
+                          duration such that each cavity photon imprints phase π
+                          on the qubit: χ_eff · τ = π.  Differs from the
+                          analytical estimate 1/(4χ) = 1/(2·2χ) due to AC Stark shifts,
+                          higher-order dispersive terms, and finite pulse lengths.
+                          Calibrated by node 30.  ``None`` until first calibration.
         sideband_drive:   IQ drive channel for the |f,0⟩↔|g,1⟩ sideband transition.
                           Typically wired to a dedicated Octave RF output with an
                           external LO at ~8 GHz; the IF spans ±500 MHz to reach
@@ -69,5 +78,8 @@ class CavityTransmonPair(QuamComponent):
     cavity_mode_name: str
     chi: Optional[float] = None
     displacement_k: Optional[float] = None
+    parity_time: Optional[float] = None
     sideband_drive: Optional[XYDriveIQ] = None
     extras: Dict[str, Any] = field(default_factory=dict)
+
+

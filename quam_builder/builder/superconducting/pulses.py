@@ -400,7 +400,7 @@ def add_selective_x180_pulse(
             length=length,
             amplitude=amplitude,
             axis_angle=0,
-            digital_marker=digital_marker
+            digital_marker=digital_marker,
         )
 
 

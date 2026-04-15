@@ -13,14 +13,10 @@ from qm import QuantumMachine, logger
 from qm.qua.type_hints import QuaVariable
 from qm.octave.octave_mixer_calibration import MixerCalibrationResults
 from qm.qua import (
-    save,
     declare,
     fixed,
     assign,
     wait,
-    while_,
-    StreamType,
-    if_,
     update_frequency,
     Math,
     Cast,
@@ -63,10 +59,9 @@ class CavityMode(Qubit):
         calibrate_octave: Calibrates the Octave channels (xy and resonator) linked to this transmon.
         set_gate_shape: Sets the shape of the single qubit gates.
         readout_state: Performs a readout of the qubit state using the specified pulse.
-        reset_qubit: Reset the qubit to the ground state ('g') with the specified method.
-        reset_qubit_thermal: Reset the qubit to the ground state ('g') using thermalization.
-        reset_qubit_active: Reset the qubit to the ground state ('g') using active reset.
-        reset_qubit_active_gef: Reset the qubit to the ground state ('g') using active reset with GEF state readout.
+        reset: Reset the cavity mode with a chosen method ("thermal" or "active_sideband").
+        reset_cavity_thermal: Wait thermalization_time_factor * T1 for the cavity to decay to vacuum.
+        reset_cavity_active_sideband: Actively cool to vacuum via repeated f0g1 π-pulses (|n,g⟩→|n-1,f⟩).
         readout_state_gef: Perform a GEF state readout using the specified pulse and update the state variable.
     """
 
@@ -79,8 +74,6 @@ class CavityMode(Qubit):
     T2echo: float = None
     thermalization_time_factor: int = 5
 
-    chi: float = None
-    """Dispersive shift of this cavity mode to the transmon [Hz]."""
     extras: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -217,156 +210,118 @@ class CavityMode(Qubit):
 
     def reset(
         self,
-        reset_type: Literal["thermal", "active", "active_gef"] = "thermal",
+        reset_type: Literal["thermal", "active_sideband"] = "thermal",
         simulate: bool = False,
         log_callable: Optional[Callable] = None,
         **kwargs,
     ):
         """
-        Reset the qubit with the specified method.
-
-        This function resets the qubit using the specified method: thermal reset, active reset, or active GEF reset.
-        When simulating the QUA program, the qubit reset is skipped to save simulated samples.
+        Reset the cavity mode with the specified method.
 
         Args:
-            reset_type (Literal["thermal", "active", "active_gef"]): The type of reset to perform. Default is "thermal".
-            simulate (bool): If True, the qubit reset is skipped for simulation purposes. Default is False.
-            log_callable (optional): Logger instance to log warnings. If None, a default logger is used.
-            **kwargs: Additional keyword arguments passed to the active reset methods.
-
-        Returns:
-            None
-
-        Raises:
-            Warning: If the function is called in simulation mode, a warning is issued indicating
-                     that the qubit reset has been skipped.
+            reset_type: ``"thermal"`` waits ``thermalization_time_factor * T1`` for the
+                cavity photons to decay naturally.  ``"active_sideband"`` performs active
+                sideband cooling via repeated f0g1 π-pulses (see
+                :meth:`reset_cavity_active_sideband` for the required kwargs).
+            simulate: When ``True`` the reset is skipped so the simulation runs faster.
+            log_callable: Called with a warning string when the reset is skipped in
+                simulation mode.  Defaults to the module logger.
+            **kwargs: Forwarded verbatim to :meth:`reset_cavity_active_sideband` when
+                ``reset_type="active_sideband"``.
         """
         if not simulate:
             if reset_type == "thermal":
-                self.reset_qubit_thermal()
-            elif reset_type == "active":
-                self.reset_qubit_active(**kwargs)
-            elif reset_type == "active_gef":
-                self.reset_qubit_active_gef(**kwargs)
+                self.reset_cavity_thermal()
+            elif reset_type == "active_sideband":
+                self.reset_cavity_active_sideband(**kwargs)
         else:
             if log_callable is None:
                 log_callable = getLogger(__name__).warning
             log_callable(
-                "For simulating the QUA program, the qubit reset has been skipped."
+                "For simulating the QUA program, the cavity mode reset has been skipped."
             )
 
-    def reset_qubit_thermal(self):
-        """
-        Perform a thermal reset of the qubit.
-
-        This function waits for a duration specified by the thermalization time
-        to allow the qubit to return to its ground state through natural thermal
-        relaxation.
-        """
+    def reset_cavity_thermal(self):
+        """Wait ``thermalization_time_factor * T1`` for the cavity to decay to vacuum."""
         self.wait(self.thermalization_time // 4)
 
-    def reset_qubit_active(
+    def reset_cavity_active_sideband(
         self,
-        save_qua_var: Optional[StreamType] = None,
-        pi_pulse_name: str = "x180",
-        readout_pulse_name: str = "readout",
-        max_attempts: int = 15,
+        sideband_drive,
+        qubit_thermalization_time: int,
+        f0g1_pi_pulse_name: str = "f0g1_pi",
+        fock_n: int = 1,
+        f0g1_pulse_duration_ns: int = None,
+        chi_hz: float = None,
     ):
         """
-        Perform an active reset of the qubit.
+        Actively cool the cavity mode to vacuum using f0g1 sideband π-pulses.
 
-        This function performs an active reset of the qubit by repeatedly measuring the qubit state and applying a pi pulse
-        until the qubit is in the ground state or the maximum number of attempts is reached.
+        The protocol removes photons one at a time, starting from Fock state |fock_n⟩
+        down to vacuum:
 
-        Args:
-            save_qua_var (Optional[StreamType]): The QUA variable to save the number of attempts to.
-            pi_pulse_name (str): The name of the pi pulse to use for the reset. Default is "x180".
-            readout_pulse_name (str): The name of the readout pulse to use for measuring the qubit state. Default is "readout".
-            max_attempts (int): The maximum number of attempts to reset the qubit. Default is 15.
+          For n = fock_n, fock_n-1, …, 1:
+            1. Update the sideband drive IF to target the photon-number-resolved
+               |n, g⟩ ↔ |n-1, f⟩ transition:
+               ``IF = sideband_IF + (n-1) × χ``
+            2. Play the f0g1 π-pulse  →  maps |n, g⟩ → |n-1, f⟩.
+               If ``f0g1_pulse_duration_ns`` is set, the pulse is played at that
+               duration instead of the calibrated length.  Use a longer duration
+               (e.g. several T1_cavity) to ensure complete photon decoherence
+               during the pulse to ensure complete photon decoherence.
+            3. Wait ``2 × qubit_thermalization_time`` for the transmon to relax
+               |f⟩ → |e⟩ → |g⟩ (two decay steps), taking the cavity from
+               |n-1, f⟩ to |n-1, g⟩.
 
-        Returns:
-            None
-
-        The function measures the qubit state using the specified readout pulse, applies a pi pulse if the qubit is not in the ground state,
-        and repeats this process until the qubit is in the ground state or the maximum number of attempts is reached.
-        If `save_qua_var` is provided, the number of attempts is saved to this variable.
-        """
-        pulse = self.resonator.operations[readout_pulse_name]
-
-        I = declare(fixed)
-        Q = declare(fixed)
-        state = declare(bool)
-        attempts = declare(int, value=1)
-        assign(attempts, 1)
-        self.align()
-        self.resonator.measure("readout", qua_vars=(I, Q))
-        assign(state, I > pulse.threshold)
-        wait(self.resonator.depletion_time // 2, self.resonator.name)
-        self.xy.play(pi_pulse_name, condition=state)
-        with while_((I > pulse.rus_exit_threshold) & (attempts < max_attempts)):
-            self.xy.align(self.resonator.name)
-            self.resonator.measure("readout", qua_vars=(I, Q))
-            assign(state, I > pulse.threshold)
-            wait(self.resonator.depletion_time // 2, self.resonator.name)
-            self.xy.play(pi_pulse_name, condition=state)
-            self.xy.align(self.resonator.name)
-            assign(attempts, attempts + 1)
-        wait(500, self.xy.name)
-        self.xy.align(self.resonator.name)
-        if save_qua_var is not None:
-            save(attempts, save_qua_var)
-
-    def reset_qubit_active_gef(
-        self,
-        readout_pulse_name: str = "readout",
-        pi_01_pulse_name: str = "x180",
-        pi_12_pulse_name: str = "EF_x180",
-    ):
-        """
-        Reset the qubit to the ground state ('g') using active reset with GEF state readout.
-
-        This function performs an active reset of the qubit by repeatedly measuring its state
-        and applying appropriate pulses to bring it back to the ground state ('g'). The process
-        continues until the qubit is measured in the ground state twice in a row to ensure high
-        confidence in the reset.
+        After the loop the sideband drive IF is restored to its original value.
 
         Args:
-            readout_pulse_name (str, optional): The name of the pulse to use for the readout. Defaults to "readout".
-            pi_01_pulse_name (str, optional): The name of the pulse to use for the 0-1 transition. Defaults to "x180".
-            pi_12_pulse_name (str, optional): The name of the pulse to use for the 1-2 transition. Defaults to "EF_x180".
-
-        Returns:
-            None
+            sideband_drive: The :class:`XYDriveIQ` channel used for the f0g1
+                sideband transition — typically ``pair.sideband_drive`` where
+                ``pair`` is the :class:`CavityTransmonPair` for this cavity mode.
+            qubit_thermalization_time: Time (ns) to wait for a single qubit decay
+                step.  Pass ``qubit.thermalization_time``.  The method waits
+                ``2 × qubit_thermalization_time`` per cooling step to account for
+                both |f⟩ → |e⟩ and |e⟩ → |g⟩ relaxation.
+            f0g1_pi_pulse_name: Name of the sideband π-pulse operation on
+                ``sideband_drive``.  Default is ``"f0g1_pi"``.
+            fock_n: Starting photon number — cooling sweeps from |fock_n⟩ to |0⟩.
+                Default is 1 (single-photon removal).
+            f0g1_pulse_duration_ns: Override the sideband pulse duration [ns].
+                When ``None`` (default), the calibrated pulse length is used.
+                Set to a value longer than the calibrated π-pulse (e.g. several
+                ms) to allow the cavity photon to decohere during the drive,
+                ensuring the cooling step completes even for imperfect π-pulses.
+                Must be a multiple of 4 ns.
+            chi_hz: Dispersive coupling χ/(2π) [Hz] from the corresponding
+                CavityTransmonPair.  Used to resolve photon-number-dependent
+                sideband frequencies when fock_n > 1.  Pass
+                ``pair.chi`` where ``pair`` is the CavityTransmonPair.
+                When ``None`` (default), frequency updates are skipped —
+                correct for ``fock_n=1`` but inaccurate for higher Fock states.
         """
-        res_ar = declare(int)
-        success = declare(int)
-        assign(success, 0)
-        attempts = declare(int)
-        assign(attempts, 0)
-        self.align()
-        with while_(success < 2):
-            self.readout_state_gef(res_ar, readout_pulse_name)
-            wait(self.rr.res_deplete_time // 4, self.xy.name)
-            self.align()
-            with if_(res_ar == 0):
-                assign(
-                    success, success + 1
-                )  # we need to measure 'g' two times in a row to increase our confidence
-            with if_(res_ar == 1):
-                update_frequency(self.xy.name, int(self.xy.intermediate_frequency))
-                self.xy.play(pi_01_pulse_name)
-                assign(success, 0)
-            with if_(res_ar == 2):
-                update_frequency(
-                    self.xy.name,
-                    int(self.xy.intermediate_frequency - self.anharmonicity),
-                )
-                self.xy.play(pi_12_pulse_name)
-                update_frequency(self.xy.name, int(self.xy.intermediate_frequency))
-                self.xy.play(pi_01_pulse_name)
-                assign(success, 0)
-            self.align()
-            assign(attempts, attempts + 1)
+        base_if = int(sideband_drive.intermediate_frequency)
+        # Per-photon sideband frequency step = 2*chi (peak spacing)
+        chi = int(2 * chi_hz) if chi_hz is not None else 0
+
+        # Convert override duration to QUA clock cycles (4 ns each)
+        duration_clk = (f0g1_pulse_duration_ns // 4) if f0g1_pulse_duration_ns is not None else None
+
+        for n in range(fock_n, 0, -1):
+            # Target |n,g⟩ → |n-1,f⟩: sideband IF shifts by (n-1)*chi relative to base
+            target_if = base_if + (n - 1) * chi
+            if target_if != base_if:
+                update_frequency(sideband_drive.name, target_if)
+            if duration_clk is not None:
+                sideband_drive.play(f0g1_pi_pulse_name, duration=duration_clk)
+            else:
+                sideband_drive.play(f0g1_pi_pulse_name)
+            # Wait for the transmon to relax |f⟩ → |e⟩ → |g⟩ (two decay steps)
+            wait(2 * qubit_thermalization_time // 4, sideband_drive.name)
+
+        # Restore the original IF (may have been changed for fock_n > 1)
+        if chi != 0 and fock_n > 1:
+            update_frequency(sideband_drive.name, base_if)
 
     def readout_state_gef(self, state: QuaVariable, pulse_name: str = "readout"):
         """
