@@ -59,6 +59,12 @@ class CavityTransmonPair(QuamComponent):
                           photon number n̄ = k · A², where A is the
                           ``displacement`` pulse ``amplitude_scale``.
                           Calibrated by node 28 or 30.  ``None`` until first calibration.
+        displacement_alpha_max: Maximum photon number (|α|) reachable with amplitude_scale=1.
+                          Computed by node 22 from the OPX+ DAC ceiling (0.5 V) and
+                          firmware headroom (1.9): alpha_max = 0.5 / (base_amp × sigma × 1.9).
+                          The displacement pulse amplitude is set to base_amp × sigma × alpha_max
+                          ≈ 0.263 V, so amplitude_scale ∈ [0, 1.9] spans [0, alpha_max × 1.9]
+                          photons.  ``None`` until first calibration by node 22.
         parity_time:      Experimentally calibrated parity time τ [seconds] for
                           Wigner tomography.  This is the dispersive Ramsey wait
                           duration such that each cavity photon imprints phase π
@@ -78,6 +84,7 @@ class CavityTransmonPair(QuamComponent):
     cavity_mode_name: str
     chi: Optional[float] = None
     displacement_k: Optional[float] = None
+    displacement_alpha_max: Optional[float] = None
     parity_time: Optional[float] = None
     sideband_drive: Optional[XYDriveIQ] = None
     extras: Dict[str, Any] = field(default_factory=dict)
