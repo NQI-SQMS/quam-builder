@@ -45,7 +45,6 @@ class CavityMode(Qubit):
         thermalization_time_factor (int): Thermalization time in units of T1. Default is 5.
         sigma_time_factor (int): Sigma time factor for pulse shaping. Default is 5.
         GEF_frequency_shift (int): The frequency shift for the GEF states. Default is None.
-        chi (float): The dispersive shift in Hz. Default is None.
         grid_location (str): Qubit location in the plot grid as "column, row".
         gate_fidelity (Dict[str, Any]): Collection of single qubit gate fidelity.
         extras (Dict[str, Any]): Additional attributes for the transmon.
@@ -293,23 +292,32 @@ class CavityMode(Qubit):
                 ms) to allow the cavity photon to decohere during the drive,
                 ensuring the cooling step completes even for imperfect π-pulses.
                 Must be a multiple of 4 ns.
-            chi_hz: Dispersive coupling χ/(2π) [Hz] from the corresponding
-                CavityTransmonPair.  Used to resolve photon-number-dependent
-                sideband frequencies when fock_n > 1.  Pass
-                ``pair.chi`` where ``pair`` is the CavityTransmonPair.
+            chi_hz: Full per-photon qubit frequency shift [Hz] from the
+                corresponding CavityTransmonPair — ``pair.chi``.
+                Stored as a **negative** value: for typical transmon-cavity
+                systems more photons lower the qubit frequency, so
+                ``pair.chi < 0`` and ``|pair.chi|`` equals the PNRS peak
+                spacing.  Used to resolve photon-number-dependent sideband
+                frequencies when fock_n > 1.  The f0g1 sideband frequency
+                *decreases* with photon number — the method subtracts
+                ``(n-1) × |chi_hz|`` from the base IF accordingly.
                 When ``None`` (default), frequency updates are skipped —
                 correct for ``fock_n=1`` but inaccurate for higher Fock states.
         """
         base_if = int(sideband_drive.intermediate_frequency)
-        # Per-photon sideband frequency step = 2*chi (peak spacing)
-        chi = int(2 * chi_hz) if chi_hz is not None else 0
+        # pair.chi is stored negative (full per-photon qubit frequency shift).
+        # |chi_hz| = PNRS peak spacing.  The f0g1 sideband frequency decreases
+        # by |chi_hz| per additional photon: target = base - (n-1)*|chi_hz|.
+        # Negate chi_hz to get the positive step size used in the subtraction.
+        chi = int(-chi_hz) if chi_hz is not None else 0
 
         # Convert override duration to QUA clock cycles (4 ns each)
         duration_clk = (f0g1_pulse_duration_ns // 4) if f0g1_pulse_duration_ns is not None else None
 
         for n in range(fock_n, 0, -1):
-            # Target |n,g⟩ → |n-1,f⟩: sideband IF shifts by (n-1)*chi relative to base
-            target_if = base_if + (n - 1) * chi
+            # Target |n,g⟩ → |n-1,f⟩: sideband IF decreases by (n-1)*|chi_hz| relative to base.
+            # chi = |chi_hz| (positive step) so subtracting it lowers the IF for higher Fock states.
+            target_if = base_if - (n - 1) * chi
             if target_if != base_if:
                 update_frequency(sideband_drive.name, target_if)
             if duration_clk is not None:

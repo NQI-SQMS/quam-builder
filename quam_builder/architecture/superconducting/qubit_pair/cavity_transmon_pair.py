@@ -49,11 +49,12 @@ class CavityTransmonPair(QuamComponent):
                           Must match a key in the QUAM root ``qubits`` dict.
         cavity_mode_name: Name of the cavity mode (e.g. ``"alice"`` or ``"bob"``).
                           Must match a key in the parent ``Cavity`` object.
-        chi:              Hamiltonian dispersive coupling constant χ/(2π) [Hz],
-                          defined by H/ħ = χ a†a σz.
-                          The qubit transition shifts by 2χ per cavity photon:
-                          ω_q(n) = ω_q + 2χ·n.  PNRS peak spacing = 2*chi.
-                          Calibrated by nodes 24 / 25 / 28.
+        chi:              Full per-photon qubit frequency shift [Hz], defined as
+                          ω_q(n) = ω_q + chi·n.  Stored with its physical sign:
+                          for typical transmon-cavity systems chi < 0 (more
+                          photons lower the qubit frequency).
+                          ``|chi|`` equals the PNRS peak spacing (n=0→n=1).
+                          Calibrated by nodes 24 / 25 / 28 / 30.
                           ``None`` until first calibration.
         displacement_k:   Displacement calibration constant k such that the mean
                           photon number n̄ = k · A², where A is the
@@ -69,7 +70,7 @@ class CavityTransmonPair(QuamComponent):
                           Wigner tomography.  This is the dispersive Ramsey wait
                           duration such that each cavity photon imprints phase π
                           on the qubit: χ_eff · τ = π.  Differs from the
-                          analytical estimate 1/(4χ) = 1/(2·2χ) due to AC Stark shifts,
+                          analytical estimate 1/(2·|chi|) due to AC Stark shifts,
                           higher-order dispersive terms, and finite pulse lengths.
                           Calibrated by node 30.  ``None`` until first calibration.
         sideband_drive:   IQ drive channel for the |f,0⟩↔|g,1⟩ sideband transition.
