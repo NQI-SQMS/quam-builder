@@ -29,6 +29,11 @@ class ReadoutResonatorBase:
         gef_centers (list): The centers of the GEF states.
         gef_confusion_matrix (list): The confusion matrix for the GEF states.
         GEF_frequency_shift (float): The frequency shift for the GEF states.
+        Q_loaded (float): Loaded/total quality factor Q_L from circle fit.
+        Q_internal (float): Internal quality factor Q_i from circle fit.
+        Q_external (float): External/coupling quality factor Q_e from circle fit.
+        kappa_Hz (float): Total linewidth κ/2π [Hz] = f_01 / Q_L from circle fit.
+        phi0_circlefit (float): Impedance mismatch angle φ₀ [rad] from circle fit.
     """
 
     depletion_time: int = 16
@@ -41,6 +46,18 @@ class ReadoutResonatorBase:
     gef_centers: list = None
     gef_confusion_matrix: list = None
     GEF_frequency_shift: float = None
+
+    # Circle-fit resonator parameters (populated by 02a_resonator_spectroscopy when run_circle_fit=True)
+    Q_loaded: Optional[float] = None
+    """Loaded/total quality factor Q_L = 1/(1/Q_i + 1/Q_e). From circle fit."""
+    Q_internal: Optional[float] = None
+    """Internal quality factor Q_i (loss). From circle fit."""
+    Q_external: Optional[float] = None
+    """External/coupling quality factor Q_e. From circle fit."""
+    kappa_Hz: Optional[float] = None
+    """Total resonator linewidth κ/2π [Hz] = f_01 / Q_L. From circle fit."""
+    phi0_circlefit: Optional[float] = None
+    """Impedance mismatch angle φ₀ [rad]. From circle fit."""
 
     @staticmethod
     def calculate_voltage_scaling_factor(

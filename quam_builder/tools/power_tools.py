@@ -146,12 +146,12 @@ def set_output_power_iq_channel(
         gain = max(min(gain, 20), -20)
         amplitude = u.dBm2volts(power_in_dbm - gain)
     elif gain is not None:
-        amplitude = u.dBm2volts(power_in_dbm - channel.frequency_converter_up.gain)
+        amplitude = u.dBm2volts(power_in_dbm - gain)
 
     if not -20 <= gain <= 20:
         raise ValueError(f"Expected Octave gain within [-20:0.5:20] dB, got {gain} dB.")
 
-    if not -0.5 <= max_amplitude < 0.5:
+    if max_amplitude is not None and not -0.5 <= max_amplitude < 0.5:
         raise ValueError("The OPX+ pulse amplitude must be within [-0.5, 0.5) V.")
 
     print(f"Setting the Octave gain to {gain} dB")
@@ -160,7 +160,7 @@ def set_output_power_iq_channel(
     channel.frequency_converter_up.gain = gain
     channel.operations[operation].amplitude = amplitude
 
-    return {"gain": gain, "amplitude": max_amplitude}
+    return {"gain": gain, "amplitude": amplitude}
 
 
 def get_output_power_iq_channel(channel: IQChannel, operation, Z=50) -> float:
