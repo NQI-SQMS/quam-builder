@@ -1,16 +1,15 @@
-import warnings
 from dataclasses import field
-from typing import Dict, Union, ClassVar, Type
+from typing import Dict
 
 from quam.core import quam_dataclass
-from qm.qua import update_frequency
 
 from quam_builder.architecture.superconducting.qubit import (
     FluxTunableTransmon,
-    FixedFrequencyTransmon,
 )
-from quam_builder.architecture.superconducting.qubit_pair import FluxTunableTransmonPair
-from quam_builder.architecture.superconducting.qpu.base_quam import BaseQuam
+from quam_builder.architecture.superconducting.qubit_pair import (
+    FluxTunableTransmonPair,
+    CavityTransmonPair,
+)
 from quam_builder.architecture.superconducting.qpu.flux_tunable_quam import (
     FluxTunableQuam,
 )
@@ -21,133 +20,28 @@ __all__ = [
     "FluxTunableQuam",
     "FluxTunableTransmon",
     "FluxTunableTransmonPair",
+    "CavityTransmonPair",
     "Cavity",
 ]
 
 
 @quam_dataclass
-class CavityQuam(FluxTunableQuam):
-    """Example of a QUAM composed of flux-tunable transmons coupled to SRF cavities.
+class CavityQuam:
+    """SRF-cavity QUAM mixin: adds cavities/cavity-transmon coupling state on top of
+    whichever qubit-type QPU class it's combined with — combine via multiple
+    inheritance, e.g. ``class Quam(CavityQuam, FluxTunableQuam): ...``.
+
+    Note: this mixin does not itself activate TWPAs. `FluxTunableQuam.initialize_qpu`
+    already loops over `self.twpas` and calls `.initialize()`, so it's inherited for
+    free when combined with `FluxTunableQuam`. If combined with a QPU class whose
+    `initialize_qpu` doesn't activate TWPAs (e.g. plain `FixedFrequencyQuam`), add
+    that call explicitly in the concrete `Quam` class.
 
     Attributes:
-        qubit_type (ClassVar[Type[FluxTunableTransmon]]): The type of the qubits in the QUAM for type hinting.
-        qubit_pair_type (ClassVar[Type[FluxTunableTransmonPair]]): The type of the qubit pairs in the QUAM for type hinting.
-        qubits (Dict[str, FluxTunableTransmon]): A dictionary of qubits composing the QUAM.
-        qubit_pairs (Dict[str, FluxTunableTransmonPair]): A dictionary of qubit pairs composing the QUAM.
-        cavities (Dict[str, Cavity]): A dictionary of SRF storage cavities (e.g. alice, bob) coupled to the qubits.
-
-    Methods:
-        load: Loads the QUAM from the state.json file.
-        apply_all_couplers_to_min: Apply the offsets that bring all the active qubit pairs to a decoupled point.
-        apply_all_flux_to_joint_idle: Apply the offsets that bring all the active qubits to the joint sweet spot.
-        apply_all_flux_to_min: Apply the offsets that bring all the active qubits to the minimum frequency point.
-        apply_all_flux_to_zero: Apply the offsets that bring all the active qubits to the zero bias point.
-        set_all_fluxes: Set the fluxes to the specified point for the target qubit or qubit pair.
-        initialize_qpu: Initialize the QPU with the calibrated TWPA pumping points and with the specified flux point and target .
+        cavities (Dict[str, Cavity]): SRF storage cavities (e.g. alice, bob) coupled to the qubits.
+        cavity_transmon_pairs (Dict[str, CavityTransmonPair]): qubit-cavity coupling parameters
+            (chi, displacement k).
     """
 
-    qubit_type: ClassVar[Type[FluxTunableTransmon]] = FluxTunableTransmon
-    qubit_pair_type: ClassVar[Type[FluxTunableTransmonPair]] = FluxTunableTransmonPair
-
-    qubits: Dict[str, FluxTunableTransmon] = field(default_factory=dict)
-    qubit_pairs: Dict[str, FluxTunableTransmonPair] = field(default_factory=dict)
     cavities: Dict[str, Cavity] = field(default_factory=dict)
-
-    @classmethod
-    def load(cls, *args, **kwargs) -> "FluxTunableQuam":
-        return super().load(*args, **kwargs)
-
-    def apply_all_couplers_to_min(self) -> None:
-        """Apply the offsets that bring all the active qubit pairs to a decoupled point."""
-        for qp in self.active_qubit_pairs:
-            if qp.coupler is not None:
-                qp.coupler.to_decouple_idle()
-
-    def apply_all_flux_to_joint_idle(self) -> None:
-        """Apply the offsets that bring all the active qubits to the joint sweet spot."""
-        for q in self.active_qubits:
-            if q.z is not None:
-                q.z.to_joint_idle()
-            else:
-                warnings.warn(
-                    f"Didn't find z-element on qubit {q.name}, didn't set to joint-idle"
-                )
-        for q in self.qubits:
-            if self.qubits[q] not in self.active_qubits:
-                if self.qubits[q].z is not None:
-                    self.qubits[q].z.to_min()
-                else:
-                    warnings.warn(
-                        f"Didn't find z-element on qubit {q}, didn't set to min"
-                    )
-        self.apply_all_couplers_to_min()
-
-    def apply_all_flux_to_min(self) -> None:
-        """Apply the offsets that bring all the active qubits to the minimum frequency point."""
-        for q in self.qubits:
-            if self.qubits[q].z is not None:
-                self.qubits[q].z.to_min()
-            else:
-                warnings.warn(f"Didn't find z-element on qubit {q}, didn't set to min")
-        self.apply_all_couplers_to_min()
-
-    def apply_all_flux_to_zero(self) -> None:
-        """Apply the offsets that bring all the active qubits to the zero bias point."""
-        for q in self.active_qubits:
-            q.z.to_zero()
-
-    def set_all_fluxes(
-        self,
-        flux_point: str,
-        target: Union[FluxTunableTransmon, FluxTunableTransmonPair],
-    ):
-        """Set the fluxes to the specified point for the target qubit or qubit pair.
-
-        Args:
-            flux_point (str): The flux point to set ('independent', 'pairwise', 'joint', 'min').
-            target (Union[FluxTunableTransmon, FluxTunableTransmonPair]): The target qubit or qubit pair.
-        """
-        if flux_point == "independent":
-            assert isinstance(
-                target, FluxTunableTransmon
-            ), "Independent flux point is only supported for individual transmons"
-        elif flux_point == "pairwise":
-            assert isinstance(
-                target, FluxTunableTransmonPair
-            ), "Pairwise flux point is only supported for transmon pairs"
-
-        target_bias = None
-        if flux_point == "joint":
-            self.apply_all_flux_to_joint_idle()
-            if isinstance(target, FluxTunableTransmonPair):
-                target_bias = target.mutual_flux_bias
-            else:
-                target_bias = target.z.joint_offset
-        else:
-            self.apply_all_flux_to_min()
-
-        if flux_point == "independent":
-            target.z.to_independent_idle()
-            target_bias = target.z.independent_offset
-
-        elif flux_point == "pairwise":
-            target.to_mutual_idle()
-            target_bias = target.mutual_flux_bias
-
-        target.z.settle()
-        target.align()
-        return target_bias
-
-    def initialize_qpu(self, **kwargs):
-        """Initialize the QPU with the calibrated TWPA pumping points and
-           with the specified flux point and target
-
-        Args:
-            flux_point (str): The flux point to set. Default is 'joint'.
-            target: The qubit under study.
-        """
-        for twpa in self.twpas.values():
-            twpa.initialize()
-        flux_point = kwargs.get("flux_point", "joint")
-        target = kwargs.get("target", None)
-        self.set_all_fluxes(flux_point, target)
+    cavity_transmon_pairs: Dict[str, CavityTransmonPair] = field(default_factory=dict)

@@ -132,8 +132,7 @@ class FluxTunableQuam(BaseQuam):
             flux_point (str): The flux point to set. Default is 'joint'.
             target: The qubit under study.
         """
-        for twpa in self.twpas.values():
-            twpa.initialize()
+        self.initialize_twpas()
         flux_point = kwargs.get("flux_point", "joint")
         target = kwargs.get("target", None)
         self.set_all_fluxes(flux_point, target)

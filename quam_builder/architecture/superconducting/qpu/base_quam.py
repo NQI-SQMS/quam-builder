@@ -364,3 +364,8 @@ class BaseQuam(QuamRoot):
     def initialize_qpu(self, **kwargs):
         """Initialize the QPU with the specified settings."""
         pass
+
+    def initialize_twpas(self) -> None:
+        """Activate (pump on, ring up) every TWPA in `self.twpas`."""
+        for twpa in self.twpas.values():
+            twpa.initialize()

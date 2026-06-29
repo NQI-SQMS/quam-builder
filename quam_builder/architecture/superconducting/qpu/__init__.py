@@ -7,6 +7,7 @@ from quam_builder.architecture.superconducting.qpu.flux_tunable_quam import (
 )
 from quam_builder.architecture.superconducting.qpu.cavity_quam import (
     CavityQuam,
+    CavityTransmonPair,
 )
 
 from typing import Union

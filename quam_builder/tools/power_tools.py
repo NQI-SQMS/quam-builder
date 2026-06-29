@@ -56,9 +56,6 @@ def set_output_power_mw_channel(
 
         channel.opx_output.full_scale_power_dbm = full_scale_power_dbm
 
-    if power_in_dbm > 10:
-        raise ValueError(f"Expected `power_in_dbm` to be <10 dBm, got {power_in_dbm}")
-
     # use a temporary variable for node.record_state_updates
     temp_full_scale_power_dbm = channel.opx_output.full_scale_power_dbm
 
