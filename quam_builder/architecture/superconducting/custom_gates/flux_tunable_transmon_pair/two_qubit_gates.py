@@ -1,7 +1,8 @@
-from typing import Union, Any
+from typing import Any, Literal, Union
 from dataclasses import field
 
 import numpy as np
+from qm.qua import align
 
 from quam.components.macro import QubitPairMacro
 from quam.components.pulses import Pulse
@@ -20,9 +21,7 @@ def get_pulse_name(pulse: Pulse) -> str:
     elif pulse.parent is not None:
         return pulse.parent.get_attr_name(pulse)
     else:
-        raise AttributeError(
-            f"Cannot infer id of {pulse} because it is not attached to a parent"
-        )
+        raise AttributeError(f"Cannot infer id of {pulse} because it is not attached to a parent")
 
 
 @quam_dataclass
@@ -165,7 +164,7 @@ class CZGate(QubitPairMacro):
       reconstructing pulse objects.
     """
 
-    flux_pulse_control: Union[Pulse, str]
+    flux_pulse_qubit: Union[Pulse, str]
     coupler_flux_pulse: Pulse = None
 
     phase_shift_control: float = 0.0
@@ -179,12 +178,13 @@ class CZGate(QubitPairMacro):
     extras: dict[str, Any] = field(default_factory=dict)
     duration_control: ScalarInt = None
 
+    moving_qubit: Literal["control", "target"] = "control"
+
     @property
-    def flux_pulse_control_label(self) -> str:
+    def flux_pulse_qubit_label(self) -> str:
+        qubit = self.qubit_control if self.qubit_pair.moving_qubit == "control" else self.qubit_target
         pulse = (
-            self.qubit_control.get_pulse(self.flux_pulse_control)
-            if isinstance(self.flux_pulse_control, str)
-            else self.flux_pulse_control
+            qubit.get_pulse(self.flux_pulse_qubit) if isinstance(self.flux_pulse_qubit, str) else self.flux_pulse_qubit
         )
         return get_pulse_name(pulse)
 
@@ -200,9 +200,9 @@ class CZGate(QubitPairMacro):
     def apply(
         self,
         *,
-        amplitude_scale_control=None,
+        amplitude_scale_qubit=None,
         amplitude_scale_coupler=None,
-        duration_control=None,
+        duration_qubit=None,
         phase_shift_control=None,
         phase_shift_target=None,
         **kwargs,
@@ -217,23 +217,22 @@ class CZGate(QubitPairMacro):
                 spectator_qubits_list.append(spectator_qubit)
                 spectator_pulse_names[qubit_name] = get_pulse_name(pulse)
 
-        # Align all qubits (including spectator qubits) before playing to ensure simultaneous start
-        align_list = [self.qubit_pair.qubit_target] + spectator_qubits_list
-        self.qubit_pair.qubit_control.align(align_list)
+        # Align all qubits (including coupler and spectator qubits) before playing to ensure simultaneous start
+        all_qubits = [self.qubit_pair.qubit_control, self.qubit_pair.qubit_target] + spectator_qubits_list
+        channel_names = {ch.name for qubit in all_qubits for ch in qubit.channels.values()}
+        if hasattr(self.qubit_pair, "coupler") and self.qubit_pair.coupler is not None:
+            channel_names.add(self.qubit_pair.coupler.name)
+        align(*channel_names)
 
         # Spectator qubit flux pulses
-        for qubit_name, spectator_qubit in zip(
-            self.spectator_qubits.keys(), spectator_qubits_list
-        ):
+        for qubit_name, spectator_qubit in zip(self.spectator_qubits.keys(), spectator_qubits_list):
             if qubit_name in spectator_pulse_names:
                 spectator_qubit.z.play(spectator_pulse_names[qubit_name])
 
-        # Control qubit flux
-        self.qubit_pair.qubit_control.z.play(
-            self.flux_pulse_control_label,
-            amplitude_scale=amplitude_scale_control,
-            duration=duration_control,
-        )
+        # Moving qubit flux
+        moving_qubit = self.qubit_pair.qubit_control if self.qubit_pair.moving_qubit == "control" else self.qubit_pair.qubit_target
+        fixed_qubit = self.qubit_pair.qubit_target if self.qubit_pair.moving_qubit == "control" else self.qubit_pair.qubit_control
+        moving_qubit.z.play(self.flux_pulse_qubit_label, amplitude_scale=amplitude_scale_qubit, duration=duration_qubit)
 
         # Coupler flux
         if self.coupler_flux_pulse is not None:
@@ -244,17 +243,13 @@ class CZGate(QubitPairMacro):
             )
 
         # Align all resources after playing pulses
-        self.qubit_pair.qubit_control.align(
-            [self.qubit_pair.qubit_target] + spectator_qubits_list
-        )
+        self.qubit_pair.qubit_control.align([self.qubit_pair.qubit_target] + spectator_qubits_list)
 
         # Apply phase shifts
         if phase_shift_control is not None:
             self.qubit_pair.qubit_control.xy.frame_rotation_2pi(phase_shift_control)
         elif np.abs(self.phase_shift_control) > 1e-6:
-            self.qubit_pair.qubit_control.xy.frame_rotation_2pi(
-                self.phase_shift_control
-            )
+            self.qubit_pair.qubit_control.xy.frame_rotation_2pi(self.phase_shift_control)
         if phase_shift_target is not None:
             self.qubit_pair.qubit_target.xy.frame_rotation_2pi(phase_shift_target)
         elif np.abs(self.phase_shift_target) > 1e-6:
@@ -266,6 +261,7 @@ class CZGate(QubitPairMacro):
                 self.spectator_qubits[qubit_name].xy.frame_rotation_2pi(phase_shift)
 
         # Final alignment
-        self.qubit_pair.qubit_control.align(
-            [self.qubit_pair.qubit_target] + spectator_qubits_list
-        )
+        final_channel_names = {ch.name for qubit in all_qubits for ch in qubit.channels.values()}
+        if hasattr(self.qubit_pair, "coupler") and self.qubit_pair.coupler is not None:
+            final_channel_names.add(self.qubit_pair.coupler.name)
+        align(*final_channel_names)
