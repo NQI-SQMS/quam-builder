@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Any, Union, Optional, Literal, Tuple
+from typing import Callable, Dict, Any, List, Union, Optional, Literal, Tuple
 from dataclasses import field
 from logging import getLogger
 
@@ -94,6 +94,28 @@ class BaseTransmon(Qubit):
     grid_location: str = None
     gate_fidelity: Dict[str, Any] = field(default_factory=dict)
     extras: Dict[str, Any] = field(default_factory=dict)
+
+    # GEF classifier parameters — populated by node 15_iq_blobs_gef
+    # Rotation / 1D-threshold classifier
+    gef_rotation_angle: Optional[float] = None
+    gef_threshold_low: Optional[float] = None
+    gef_threshold_high: Optional[float] = None
+    gef_threshold_sorted_order: Optional[List[int]] = None
+    # LDA classifier
+    gef_lda_sigma: Optional[List[List[float]]] = None
+    gef_lda_priors: Optional[List[float]] = None
+    gef_confusion_matrix_lda: Optional[List[List[float]]] = None
+    # Blob separation metrics (volts)
+    gef_d_ge_V: Optional[float] = None
+    gef_d_gf_V: Optional[float] = None
+    gef_d_ef_V: Optional[float] = None
+    gef_sigma_rms_V: Optional[float] = None
+    # Two-cut sequential classifier (perpendicular axes, volts after ge rotation)
+    # Decision rule: g if I_rot ≤ g_ef_threshold; then f if Q_rot ≤ ge_f_threshold (when f_is_below_ge_f=True)
+    # or f if Q_rot > ge_f_threshold (when f_is_below_ge_f=False); else e.
+    gef_g_ef_threshold: Optional[float] = None
+    gef_ge_f_threshold: Optional[float] = None
+    gef_f_is_below_ge_f: Optional[bool] = None
 
     @property
     def inferred_f_12(self) -> float:

@@ -17,7 +17,65 @@ from typing import Any, Dict, Optional
 from quam.core import QuamComponent, quam_dataclass
 from quam_builder.architecture.superconducting.components.xy_drive import XYDriveIQ
 
-__all__ = ["CavityTransmonPair"]
+__all__ = ["CavityTransmonPair", "SidebandTransition"]
+
+
+@quam_dataclass
+class SidebandTransition(QuamComponent):
+    """Calibration data for a single f{k}g{k+1} sideband transition.
+
+    Each entry in ``CavityTransmonPair.transitions`` stores calibration data for
+    one f{k}g{k+1} sideband transition.  The key is ``"f{k}g{k+1}"``
+    (e.g. ``"f0g1"``, ``"f1g2"``).
+
+    Calibration workflow per transition k:
+
+    1. Node 26  (fNgN1 spectroscopy)      → ``RF_frequency``
+    2. Node 26b (fNgN1 time Rabi)         → ``pi_flat_top_length_ns``, ``rabi_rate_hz``
+    3. Node 26c (fNgN1 Ramsey)            → refined ``RF_frequency``
+    4. Node 26d (ge IQ blobs @ Fock k+1)  → ``ge_iq_threshold``
+    5. Node 26e (qubit ge @ Fock k)       → ``chi_focka``
+    6. Node 26f (ge Ramsey @ Fock k)      → refined ``chi_focka``
+    7. Node 26g (qubit ef @ Fock k)       → ``anharmonicity_focka``
+    8. Node 26h (ef Ramsey @ Fock k)      → refined ``anharmonicity_focka``
+    9. Node 26i (resonator spec @ Fock k) → ``resonator_f_fock_hz``
+
+    Attributes:
+        RF_frequency:         Calibrated sideband RF frequency [Hz].
+        pi_flat_top_length_ns: Flat-top duration [ns] of the shaped (ramp + flat-top
+                              + ramp) π-pulse.  The total pulse length is
+                              ``pi_flat_top_length_ns + 2 × ramp_length``.
+        rabi_rate_hz:         Sideband Rabi frequency [Hz] extracted from the
+                              time-Rabi fit (node 26b).
+        ge_iq_threshold:      Readout I-quadrature threshold [QUA demod units] for
+                              qubit ge state discrimination when the cavity is in
+                              Fock state |k+1⟩.  Required because the large chi
+                              dispersive shift (~282 MHz) moves the readout resonator
+                              IQ response, invalidating the vacuum-calibrated threshold.
+                              Calibrated by node 26d.
+        chi_focka:            Qubit ge transition shift [Hz] when the cavity is in
+                              Fock state |k⟩.  Equals ``k × chi`` at leading order
+                              but deviates at higher k due to Kerr nonlinearity.
+                              Calibrated by node 26e.
+        anharmonicity_focka:  Qubit ef transition shift [Hz] relative to the bare
+                              ef frequency when the cavity is in Fock state |k⟩.
+                              Calibrated by node 26g.
+        T2_star_ns:           Sideband coherence time T2* [ns].
+        resonator_f_fock_hz:  Readout resonator RF frequency [Hz] when the storage
+                              cavity is in Fock state |k+1⟩.  Tracks the photon-number-
+                              dependent frequency shift of the readout resonator due to
+                              higher-order qubit-cavity-resonator cross-Kerr coupling.
+                              Calibrated by node 26i.
+    """
+
+    RF_frequency: Optional[float] = None
+    pi_flat_top_length_ns: Optional[int] = None
+    rabi_rate_hz: Optional[float] = None
+    ge_iq_threshold: Optional[float] = None
+    chi_focka: Optional[float] = None
+    anharmonicity_focka: Optional[float] = None
+    T2_star_ns: Optional[float] = None
+    resonator_f_fock_hz: Optional[float] = None
 
 
 @quam_dataclass
@@ -33,16 +91,19 @@ class CavityTransmonPair(QuamComponent):
       calibration constant ``displacement_k``.
     * The dedicated sideband drive channel (``sideband_drive``) used to drive the
       |f,0⟩↔|g,1⟩ transition for photon-number-resolved measurements.
+    * Per-transition sideband calibration data in ``transitions`` (replaces the old
+      ad-hoc ``extras`` dict for sideband parameters).
 
     **Calibration workflow:**
 
     1. Node 21 (f0g1 spectroscopy) finds the sideband RF frequency and stores it
-       in ``sideband_drive.RF_frequency``.
+       in ``sideband_drive.RF_frequency`` and ``transitions["f0g1"].RF_frequency``.
     2. Node 22 (f0g1 Rabi / power Rabi) calibrates the sideband π-pulse amplitude
        and stores it in ``sideband_drive.operations["f0g1_pi"].amplitude``.
     3. Node 26 / 28 measure the dispersive shift ``chi``.
     4. Node 28 (PNS displacement calibration) or 30 (Ramsey displacement calibration)
        calibrates the displacement constant ``displacement_k``.
+    5. Nodes 28–28f calibrate per-transition sideband data stored in ``transitions``.
 
     Attributes:
         qubit_name:       Name of the coupled transmon qubit (e.g. ``"q1"``).
@@ -78,7 +139,15 @@ class CavityTransmonPair(QuamComponent):
                           external LO at ~8 GHz; the IF spans ±500 MHz to reach
                           RF_frequency ≈ 2·f_ge + α − f_cavity (~3–4 GHz).
                           ``None`` if no sideband drive is wired for this pair.
-        extras:           Free-form metadata dict for project-specific extensions.
+        transitions:      Per-transition sideband calibration data, keyed by
+                          ``"f{k}g{k+1}"`` (e.g. ``"f0g1"``, ``"f1g2"``).
+                          Each value is a :class:`SidebandTransition` holding the
+                          calibrated RF frequency, π-pulse shape, Rabi rate, and
+                          Fock-state-dependent qubit frequency shifts for that transition.
+                          Populated by nodes 28–28f.
+        extras:           Free-form metadata dict for ad-hoc parameters that do not
+                          belong to any other field.  Sideband calibration data
+                          should live in ``transitions``.
     """
 
     qubit_name: str
@@ -88,6 +157,7 @@ class CavityTransmonPair(QuamComponent):
     displacement_alpha_max: Optional[float] = None
     parity_time: Optional[float] = None
     sideband_drive: Optional[XYDriveIQ] = None
+    transitions: Dict[str, SidebandTransition] = field(default_factory=dict)
     extras: Dict[str, Any] = field(default_factory=dict)
 
 
