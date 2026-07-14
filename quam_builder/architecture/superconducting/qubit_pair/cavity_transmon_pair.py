@@ -34,10 +34,10 @@ class SidebandTransition(QuamComponent):
     2. Node 26b (fNgN1 time Rabi)         → ``pi_flat_top_length_ns``, ``rabi_rate_hz``
     3. Node 26c (fNgN1 Ramsey)            → refined ``RF_frequency``
     4. Node 26d (ge IQ blobs @ Fock k+1)  → ``ge_iq_threshold``
-    5. Node 26e (qubit ge @ Fock k)       → ``chi_focka``
-    6. Node 26f (ge Ramsey @ Fock k)      → refined ``chi_focka``
-    7. Node 26g (qubit ef @ Fock k)       → ``anharmonicity_focka``
-    8. Node 26h (ef Ramsey @ Fock k)      → refined ``anharmonicity_focka``
+    5. Node 26e (qubit ge @ Fock k)       → ``delta_f_focka`` (and ``CavityTransmonPair.chi`` when k=0)
+    6. Node 26f (ge Ramsey @ Fock k)      → refined ``delta_f_focka`` (and ``CavityTransmonPair.chi`` when k=0)
+    7. Node 26g (qubit ef @ Fock k)       → ``ef_delta_f_focka``
+    8. Node 26h (ef Ramsey @ Fock k)      → refined ``ef_delta_f_focka``
     9. Node 26i (resonator spec @ Fock k) → ``resonator_f_fock_hz``
 
     Attributes:
@@ -53,13 +53,20 @@ class SidebandTransition(QuamComponent):
                               dispersive shift (~282 MHz) moves the readout resonator
                               IQ response, invalidating the vacuum-calibrated threshold.
                               Calibrated by node 26d.
-        chi_focka:            Qubit ge transition shift [Hz] when the cavity is in
-                              Fock state |k⟩.  Equals ``k × chi`` at leading order
-                              but deviates at higher k due to Kerr nonlinearity.
-                              Calibrated by node 26e.
-        anharmonicity_focka:  Qubit ef transition shift [Hz] relative to the bare
-                              ef frequency when the cavity is in Fock state |k⟩.
-                              Calibrated by node 26g.
+        delta_f_focka:        Nonlinear correction [Hz] to the qubit ge dispersive shift
+                              at Fock state |k+1⟩, defined as the deviation from the
+                              linear approximation: ``delta_f_focka = chi_measured - (k+1) × chi``,
+                              where ``chi`` is the per-photon dispersive shift stored on
+                              ``CavityTransmonPair``.  By convention ``delta_f_focka = 0``
+                              for the f0g1 transition (k=0), since ``chi`` itself is
+                              defined from that measurement.  Non-zero values at higher k
+                              capture Kerr nonlinearity.  Calibrated by node 26e.
+        ef_delta_f_focka:     Deviation [Hz] of the qubit ef transition frequency from the
+                              vacuum anharmonicity when the cavity is in Fock state |k+1⟩,
+                              defined as ``[ω_ef(k+1) - ω_ge(k+1)] - α``, where α is the
+                              bare anharmonicity.  Zero means the ef-ge gap equals α; a
+                              non-zero value is the photon-number-dependent Kerr correction
+                              to the ef transition.  Calibrated by node 26g.
         T2_star_ns:           Sideband coherence time T2* [ns].
         resonator_f_fock_hz:  Readout resonator RF frequency [Hz] when the storage
                               cavity is in Fock state |k+1⟩.  Tracks the photon-number-
@@ -72,8 +79,8 @@ class SidebandTransition(QuamComponent):
     pi_flat_top_length_ns: Optional[int] = None
     rabi_rate_hz: Optional[float] = None
     ge_iq_threshold: Optional[float] = None
-    chi_focka: Optional[float] = None
-    anharmonicity_focka: Optional[float] = None
+    delta_f_focka: Optional[float] = None
+    ef_delta_f_focka: Optional[float] = None
     T2_star_ns: Optional[float] = None
     resonator_f_fock_hz: Optional[float] = None
 
