@@ -39,6 +39,7 @@ class SidebandTransition(QuamComponent):
     7. Node 26g (qubit ef @ Fock k)       → ``ef_delta_f_focka``
     8. Node 26h (ef Ramsey @ Fock k)      → refined ``ef_delta_f_focka``
     9. Node 26i (resonator spec @ Fock k) → ``resonator_f_fock_hz``
+   10. Node 35  (cavity reset test)        → ``sideband_cooling_time`` (f0g1 only)
 
     Attributes:
         RF_frequency:         Calibrated sideband RF frequency [Hz].
@@ -73,6 +74,13 @@ class SidebandTransition(QuamComponent):
                               dependent frequency shift of the readout resonator due to
                               higher-order qubit-cavity-resonator cross-Kerr coupling.
                               Calibrated by node 26i.
+        sideband_cooling_time: Flat-top duration [ns] at which the sideband drive
+                              achieves ≥95% cavity cooling probability (t95), measured
+                              by node 35 (cavity reset test).  Used as the default
+                              sideband pulse duration during active cavity cooling when
+                              no explicit duration is passed.  ``None`` until calibrated
+                              by node 35.  Currently only populated for the f0g1
+                              transition.  Must be a multiple of 4 ns.
     """
 
     RF_frequency: Optional[float] = None
@@ -83,6 +91,7 @@ class SidebandTransition(QuamComponent):
     ef_delta_f_focka: Optional[float] = None
     T2_star_ns: Optional[float] = None
     resonator_f_fock_hz: Optional[float] = None
+    sideband_cooling_time: Optional[int] = None
 
 
 @quam_dataclass

@@ -1,4 +1,4 @@
-﻿from typing import Callable, Dict, Any, Union, Optional, Literal, Tuple
+from typing import Callable, Dict, Any, Union, Optional, Literal, Tuple
 from dataclasses import field
 from logging import getLogger
 
@@ -278,7 +278,7 @@ class CavityMode(Qubit):
         After the loop the sideband drive IF is restored to its original value.
 
         Args:
-            sideband_drive: The sideband drive channel â€” typically
+            sideband_drive: The sideband drive channel — typically
                 ``pair.sideband_drive``.
             qubit_thermalization_time: Time (ns) for a single qubit decay step.
                 Pass ``qubit.thermalization_time``.  Waits
@@ -287,8 +287,9 @@ class CavityMode(Qubit):
                 absent.  Default is ``"f0g1_pi"``.
             fock_n: Starting photon number.  Default is 1.
             sideband_pulse_duration_ns: Override the flat-top duration [ns] for every
-                cooling step.  When ``None``, the calibrated ``pi_flat_top_length_ns``
-                (from ``pair.transitions``) or the pulse's own length is used.
+                cooling step.  When ``None``, the calibrated ``sideband_cooling_time``
+                (t95 from node 35) is used if available, falling back to
+                ``pi_flat_top_length_ns``, then the pulse's own length.
                 Must be a multiple of 4 ns.
             chi_hz: Per-photon qubit frequency shift [Hz] (``pair.chi``).
                 Used only as fallback when ``pair`` is not supplied or calibrated
@@ -338,7 +339,9 @@ class CavityMode(Qubit):
                 flat_top_clk = sideband_pulse_duration_ns // 4
             elif pair is not None:
                 tr = pair.transitions.get(tr_key)
-                if tr is not None and tr.pi_flat_top_length_ns is not None:
+                if tr is not None and tr.sideband_cooling_time is not None:
+                    flat_top_clk = tr.sideband_cooling_time // 4
+                elif tr is not None and tr.pi_flat_top_length_ns is not None:
                     flat_top_clk = tr.pi_flat_top_length_ns // 4
 
             # -- Play sideband pulse --------------------------------------------
