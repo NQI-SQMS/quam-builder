@@ -168,6 +168,15 @@ class CavityTransmonPair(QuamComponent):
 
     qubit_name: str
     cavity_mode_name: str
+
+    @property
+    def name(self) -> str:
+        if self.parent is not None:
+            return self.parent.get_attr_name(self)
+        raise AttributeError(
+            f"Cannot determine name of CavityTransmonPair: no parent set"
+        )
+
     chi: Optional[float] = None
     displacement_k: Optional[float] = None
     displacement_alpha_max: Optional[float] = None

@@ -248,7 +248,7 @@ class CavityMode(Qubit):
         self,
         sideband_drive,
         qubit_thermalization_time: int,
-        f0g1_pi_pulse_name: str = "sideband_flat_top",
+        f0g1_pi_pulse_name: str = "sideband_square",
         fock_n: int = 1,
         sideband_pulse_duration_ns: int = None,
         chi_hz: float = None,
@@ -283,8 +283,8 @@ class CavityMode(Qubit):
             qubit_thermalization_time: Time (ns) for a single qubit decay step.
                 Pass ``qubit.thermalization_time``.  Waits
                 ``2 × qubit_thermalization_time`` per step.
-            f0g1_pi_pulse_name: Fallback pulse name when per-level operations are
-                absent.  Default is ``"f0g1_pi"``.
+            f0g1_pi_pulse_name: Fallback pulse name (flat-top middle segment) when
+                per-level operations are absent.  Default is ``"sideband_square"``.
             fock_n: Starting photon number.  Default is 1.
             sideband_pulse_duration_ns: Override the flat-top duration [ns] for every
                 cooling step.  When ``None``, the calibrated ``sideband_cooling_time``
