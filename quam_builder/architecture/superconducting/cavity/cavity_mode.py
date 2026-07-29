@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Any, Union, Optional, Literal, Tuple
+from typing import Callable, Dict, Any, Union, Optional, Literal
 from dataclasses import field
 from logging import getLogger
 
@@ -9,17 +9,9 @@ from quam_builder.architecture.superconducting.components.xy_drive import (
     XYDriveMW,
 )
 
-from qm import QuantumMachine, logger
-from qm.qua.type_hints import QuaVariable
-from qm.octave.octave_mixer_calibration import MixerCalibrationResults
 from qm.qua import (
-    declare,
-    fixed,
-    assign,
     wait,
     update_frequency,
-    Math,
-    Cast,
 )
 
 
@@ -55,13 +47,10 @@ class CavityMode(Qubit):
         inferred_anharmonicity: Returns the transmon anharmonicity in Hz, derived from f_01 and f_12.
         sigma: Returns the sigma value for a given pulse.
         thermalization_time: Returns the transmon thermalization time in ns.
-        calibrate_octave: Calibrates the Octave channels (xy and resonator) linked to this transmon.
         set_gate_shape: Sets the shape of the single qubit gates.
-        readout_state: Performs a readout of the qubit state using the specified pulse.
         reset: Reset the cavity mode with a chosen method ("thermal" or "active_sideband").
         reset_cavity_thermal: Wait thermalization_time_factor * T1 for the cavity to decay to vacuum.
         reset_cavity_active_sideband: Actively cool to vacuum via repeated f0g1 π-pulses (|n,g⟩→|n-1,f⟩).
-        readout_state_gef: Perform a GEF state readout using the specified pulse and update the state variable.
     """
 
     id: Union[int, str]
@@ -111,64 +100,6 @@ class CavityMode(Qubit):
         else:
             return int(self.thermalization_time_factor * 10e-6 * 1e9 / 4) * 4
 
-    def calibrate_octave(
-        self,
-        QM: QuantumMachine,
-        calibrate_drive: bool = True,
-        calibrate_resonator: bool = True,
-    ) -> Tuple[
-        Union[None, MixerCalibrationResults], Union[None, MixerCalibrationResults]
-    ]:
-        """Calibrate the Octave channels (xy and resonator) linked to this transmon for the LO frequency, intermediate
-        frequency and Octave gain as defined in the state.
-
-        Args:
-            QM (QuantumMachine): the running quantum machine.
-            calibrate_drive (bool): flag to calibrate xy line.
-            calibrate_resonator (bool): flag to calibrate the resonator line.
-
-        Return:
-            The Octave calibration results as (resonator, xy_drive)
-        """
-        if calibrate_resonator and self.resonator is not None:
-            if hasattr(self.resonator, "frequency_converter_up"):
-                logger.info(f"Calibrating {self.resonator.name}")
-                resonator_calibration_output = QM.calibrate_element(
-                    self.resonator.name,
-                    {
-                        self.resonator.frequency_converter_up.LO_frequency: (
-                            self.resonator.intermediate_frequency,
-                        )
-                    },
-                )
-            else:
-                raise RuntimeError(
-                    f"{self.resonator.name} doesn't have a 'frequency_converter_up' attribute, it is thus most likely "
-                    "not connected to an Octave."
-                )
-        else:
-            resonator_calibration_output = None
-
-        if calibrate_drive and self.xy is not None:
-            if hasattr(self.xy, "frequency_converter_up"):
-                logger.info(f"Calibrating {self.xy.name}")
-                xy_drive_calibration_output = QM.calibrate_element(
-                    self.xy.name,
-                    {
-                        self.xy.frequency_converter_up.LO_frequency: (
-                            self.xy.intermediate_frequency,
-                        )
-                    },
-                )
-            else:
-                raise RuntimeError(
-                    f"{self.xy.name} doesn't have a 'frequency_converter_up' attribute, it is thus most likely not "
-                    "connected to an Octave."
-                )
-        else:
-            xy_drive_calibration_output = None
-        return resonator_calibration_output, xy_drive_calibration_output
-
     def set_gate_shape(self, gate_shape: str) -> None:
         """Set the shape fo the single qubit gates defined as ["x180", "x90" "-x90", "y180", "y90", "-y90"]"""
         for gate in ["x180", "x90", "-x90", "y180", "y90", "-y90"]:
@@ -178,34 +109,6 @@ class CavityMode(Qubit):
                 raise AttributeError(
                     f"The gate '{gate}_{gate_shape}' is not part of the existing operations for {self.xy.name} --> {self.xy.operations.keys()}."
                 )
-
-    def readout_state(
-        self, state, pulse_name: str = "readout", threshold: Optional[float] = None
-    ):
-        """
-        Perform a readout of the qubit state using the specified pulse.
-
-        This function measures the qubit state using the specified readout pulse and assigns the result to the given state variable.
-        If no threshold is provided, the default threshold for the specified pulse is used.
-
-        Args:
-            state: The variable to assign the readout result to.
-            pulse_name (str): The name of the readout pulse to use. Default is "readout".
-            threshold (float, optional): The threshold value for the readout. If None, the default threshold for the pulse is used.
-
-        Returns:
-            None
-
-        The function declares fixed variables I and Q, measures the qubit state using the specified pulse, and assigns the result to the state variable based on the threshold.
-        It then waits for the resonator depletion time.
-        """
-        I = declare(fixed)
-        Q = declare(fixed)
-        if threshold is None:
-            threshold = self.resonator.operations[pulse_name].threshold
-        self.resonator.measure(pulse_name, qua_vars=(I, Q))
-        assign(state, Cast.to_int(I > threshold))
-        wait(self.resonator.depletion_time // 4, self.resonator.name)
 
     def reset(
         self,
@@ -363,48 +266,6 @@ class CavityMode(Qubit):
 
         # Restore the original IF
         update_frequency(sideband_drive.name, base_if)
-
-    def readout_state_gef(self, state: QuaVariable, pulse_name: str = "readout"):
-        """
-        Perform a GEF state readout using the specified pulse and update the state variable.
-
-        This function measures the 'I' and 'Q' quadrature components of the resonator's response
-        to a given pulse, calculates the squared Euclidean distance between the measured
-        (I, Q) values and the predefined GEF state centers, and assigns the state variable
-        to the index of the closest GEF state.
-
-        Args:
-            state (QuaVariableBool): The variable to store the readout state (0 for 'g', 1 for 'e', 2 for 'f').
-            pulse_name (str, optional): The name of the pulse to use for the readout. Defaults to "readout".
-
-        Returns:
-            None
-        """
-        I = declare(fixed)
-        Q = declare(fixed)
-        diff = declare(fixed, size=3)
-
-        self.resonator.update_frequency(
-            int(
-                self.resonator.intermediate_frequency
-                + self.resonator.GEF_frequency_shift
-            )
-        )
-        self.resonator.measure(pulse_name, qua_vars=(I, Q))
-        self.resonator.update_frequency(self.resonator.intermediate_frequency)
-
-        gef_centers = [
-            self.resonator.gef_centers[0],
-            self.resonator.gef_centers[1],
-            self.resonator.gef_centers[2],
-        ]
-        for p in range(3):
-            assign(
-                diff[p],
-                Math.abs(I - gef_centers[p][0]) + Math.abs(Q - gef_centers[p][1]),
-            )
-        assign(state, Math.argmin(diff))
-        wait(self.resonator.depletion_time // 4, self.resonator.name)
 
     def wait(self, duration: int):
         """Wait for a given duration on all channels of the qubit.

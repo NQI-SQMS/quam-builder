@@ -21,10 +21,13 @@ from qm.qua import (
     declare,
     fixed,
     assign,
+    align,
     wait,
     while_,
     StreamType,
     if_,
+    else_,
+    strict_timing_,
     update_frequency,
     Math,
     Cast,
@@ -222,32 +225,48 @@ class BaseTransmon(Qubit):
                 )
 
     def readout_state(
-        self, state, pulse_name: str = "readout", threshold: Optional[float] = None
+        self,
+        state=None,
+        I=None,
+        Q=None,
+        I_st=None,
+        Q_st=None,
+        state_st=None,
+        pulse_name: str = "readout",
+        threshold: Optional[float] = None,
     ):
         """
         Perform a readout of the qubit state using the specified pulse.
 
-        This function measures the qubit state using the specified readout pulse and assigns the result to the given state variable.
-        If no threshold is provided, the default threshold for the specified pulse is used.
+        Measures the resonator and optionally assigns the discriminated state, saves I/Q
+        raw quadratures and state to QUA streams, then waits for the resonator depletion time.
 
         Args:
-            state: The variable to assign the readout result to.
-            pulse_name (str): The name of the readout pulse to use. Default is "readout".
-            threshold (float, optional): The threshold value for the readout. If None, the default threshold for the pulse is used.
-
-        Returns:
-            None
-
-        The function declares fixed variables I and Q, measures the qubit state using the specified pulse, and assigns the result to the state variable based on the threshold.
-        It then waits for the resonator depletion time.
+            state: QUA variable to assign the discriminated state to. Skipped when None.
+            I: QUA fixed variable for I quadrature. Declared internally when None.
+            Q: QUA fixed variable for Q quadrature. Declared internally when None.
+            I_st: QUA stream to save I to. Not saved when None.
+            Q_st: QUA stream to save Q to. Not saved when None.
+            state_st: QUA stream to save state to. Not saved when None.
+            pulse_name (str): Name of the readout pulse. Default is "readout".
+            threshold (float, optional): Discrimination threshold. Defaults to the pulse threshold.
         """
-        I = declare(fixed)
-        Q = declare(fixed)
+        if I is None:
+            I = declare(fixed)
+        if Q is None:
+            Q = declare(fixed)
         if threshold is None:
             threshold = self.resonator.operations[pulse_name].threshold
         self.resonator.measure(pulse_name, qua_vars=(I, Q))
-        assign(state, Cast.to_int(I > threshold))
-        wait(self.resonator.depletion_time // 4, self.resonator.name)
+        if I_st is not None:
+            save(I, I_st)
+        if Q_st is not None:
+            save(Q, Q_st)
+        if state is not None:
+            assign(state, Cast.to_int(I > threshold))
+            if state_st is not None:
+                save(state, state_st)
+        self.resonator.wait(self.resonator.depletion_time // 4)
 
     def reset(
         self,
@@ -355,22 +374,20 @@ class BaseTransmon(Qubit):
         readout_pulse_name: str = "readout",
         pi_01_pulse_name: str = "x180",
         pi_12_pulse_name: str = "EF_x180",
+        max_attempts: int = 20,
     ):
         """
         Reset the qubit to the ground state ('g') using active reset with GEF state readout.
 
-        This function performs an active reset of the qubit by repeatedly measuring its state
-        and applying appropriate pulses to bring it back to the ground state ('g'). The process
-        continues until the qubit is measured in the ground state twice in a row to ensure high
-        confidence in the reset.
+        Repeatedly measures the qubit state and applies correction pulses until the qubit
+        is measured in |g⟩ twice in a row, or max_attempts is reached (hard cutoff to
+        prevent infinite loops when GEF readout calibration is imperfect).
 
         Args:
-            readout_pulse_name (str, optional): The name of the pulse to use for the readout. Defaults to "readout".
-            pi_01_pulse_name (str, optional): The name of the pulse to use for the 0-1 transition. Defaults to "x180".
-            pi_12_pulse_name (str, optional): The name of the pulse to use for the 1-2 transition. Defaults to "EF_x180".
-
-        Returns:
-            None
+            readout_pulse_name: Readout pulse name. Defaults to "readout".
+            pi_01_pulse_name:   ge π-pulse name. Defaults to "x180".
+            pi_12_pulse_name:   ef π-pulse name. Defaults to "EF_x180".
+            max_attempts:       Maximum GEF measurements before giving up. Defaults to 20.
         """
         res_ar = declare(int)
         success = declare(int)
@@ -378,14 +395,12 @@ class BaseTransmon(Qubit):
         attempts = declare(int)
         assign(attempts, 0)
         self.align()
-        with while_(success < 2):
+        with while_((success < 2) & (attempts < max_attempts)):
             self.readout_state_gef(res_ar, readout_pulse_name)
-            wait(self.rr.res_deplete_time // 4, self.xy.name)
+            wait(self.resonator.depletion_time // 4, self.xy.name)
             self.align()
             with if_(res_ar == 0):
-                assign(
-                    success, success + 1
-                )  # we need to measure 'g' two times in a row to increase our confidence
+                assign(success, success + 1)
             with if_(res_ar == 1):
                 update_frequency(self.xy.name, int(self.xy.intermediate_frequency))
                 self.xy.play(pi_01_pulse_name)
@@ -452,3 +467,4 @@ class BaseTransmon(Qubit):
         """
         channel_names = [channel.name for channel in self.channels.values()]
         wait(duration, *channel_names)
+
