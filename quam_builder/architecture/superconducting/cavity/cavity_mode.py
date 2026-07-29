@@ -354,7 +354,7 @@ class CavityMode(Qubit):
         self.resonator.update_frequency(
             int(
                 self.resonator.intermediate_frequency
-                + self.resonator.GEF_frequency_shift
+                + (self.resonator.GEF_frequency_shift or 0)
             )
         )
         self.resonator.measure(pulse_name, qua_vars=(I, Q))
