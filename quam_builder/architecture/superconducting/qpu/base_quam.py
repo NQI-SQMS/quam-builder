@@ -362,8 +362,13 @@ class BaseQuam(QuamRoot):
         return I, I_st, Q, Q_st, n, n_st
 
     def initialize_qpu(self, **kwargs):
-        """Initialize the QPU with the specified settings."""
-        pass
+        """Initialize the QPU with the specified settings.
+
+        Starts the CW pump on every TWPA whose ``initialization`` flag is True.
+        TWPAs are used both for amplification and for persistent AC Stark shifts;
+        the pump is a sticky element so it stays on for the duration of the program.
+        """
+        self.initialize_twpas()
 
     def initialize_twpas(self) -> None:
         """Activate (pump on, ring up) every TWPA in `self.twpas`."""

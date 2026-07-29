@@ -1,17 +1,10 @@
 from quam.core import quam_dataclass
 from quam import QuamComponent
 from typing import Union, ClassVar
-from qm.qua import align, wait, update_frequency
-import numpy as np
 
 from quam_builder.architecture.superconducting.components.xy_drive import XYDriveIQ, XYDriveMW
 
 __all__ = ["TWPA"]
-
-# Observed maximum hold window of the sticky `pump` element before it
-# auto-decays (~265 us), even while being actively retriggered. Re-trigger
-# it more often than this to keep it continuously on.
-_STICKY_REFRESH_PERIOD_NS = 200_000
 
 
 @quam_dataclass
@@ -91,32 +84,11 @@ class TWPA(QuamComponent):
         obj_id = id(self)
         if obj_id in self._initialized_ids:
             return
+        if self.pump_frequency is not None:
+            self.pump.update_frequency(int(self.pump_frequency - self.pump.LO_frequency))
+        if self.pump_amplitude is not None:
+            self.pump.play("pump", amplitude_scale=self.pump_amplitude)
+        else:
+            self.pump.play("pump")
 
-        f_p = self.pump_frequency
-        update_frequency(
-            self.pump.name,
-            f_p - self.pump.LO_frequency,
-        )
-        # The calibrated power is baked into the "pump" operation's own
-        # amplitude (see 01_twpa_pump_power_sweep's update_state), so it is
-        # played at amplitude_scale=1 rather than scaling by pump_amplitude.
-        self.pump.play("pump")
-
-        # Let the pump ring up/settle before it's relied on for a
-        # measurement. Broken into chunks shorter than the sticky element's
-        # observed hold window, re-triggering `pump` between chunks, so the
-        # wait itself doesn't run into the auto-decay.
-        ring_up_ns = self.pump_ring_up_time_ns
-        if ring_up_ns:
-            remaining_clk = int(ring_up_ns // 4)
-            refresh_clk = int(_STICKY_REFRESH_PERIOD_NS // 4)
-            while remaining_clk > 0:
-                step_clk = min(remaining_clk, refresh_clk)
-                wait(step_clk, self.pump.name)
-                remaining_clk -= step_clk
-                if remaining_clk > 0:
-                    self.pump.play("pump")
-
-        # Store object ID externally (won't be serialized)
-        # guarantee initializing twpa pump only once per QUA program execution
         self._initialized_ids.add(obj_id)
