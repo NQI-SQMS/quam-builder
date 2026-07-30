@@ -21,10 +21,13 @@ from qm.qua import (
     declare,
     fixed,
     assign,
+    align,
     wait,
     while_,
     StreamType,
     if_,
+    else_,
+    strict_timing_,
     update_frequency,
     Math,
     Cast,
@@ -245,7 +248,7 @@ class BaseTransmon(Qubit):
             assign(state, Cast.to_int(I > threshold))
             if state_st is not None:
                 save(state, state_st)
-        wait(self.resonator.depletion_time // 4, self.resonator.name)
+        self.resonator.wait(self.resonator.depletion_time // 4)
 
     def reset(
         self,
@@ -365,9 +368,6 @@ class BaseTransmon(Qubit):
             pi_01_pulse_name (str, optional): The name of the pulse to use for the 0-1 transition. Defaults to "x180".
             pi_12_pulse_name (str, optional): The name of the pulse to use for the 1-2 transition. Defaults to "EF_x180".
             max_attempts (int): Maximum GEF measurements before giving up. Defaults to 20.
-
-        Returns:
-            None
         """
         res_ar = declare(int)
         success = declare(int)
@@ -377,7 +377,7 @@ class BaseTransmon(Qubit):
         self.align()
         with while_((success < 2) & (attempts < max_attempts)):
             self.readout_state_gef(res_ar, readout_pulse_name)
-            wait(self.resonator.depletion_time // 4, self.resonator.name)
+            wait(self.resonator.depletion_time // 4, self.xy.name)
             self.align()
             with if_(res_ar == 0):
                 assign(success, success + 1)  # we need to measure 'g' two times in a row to increase our confidence

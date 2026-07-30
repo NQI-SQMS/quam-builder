@@ -2,8 +2,6 @@ from quam.core import quam_dataclass
 from quam.components.channels import IQChannel
 from quam import QuamComponent
 from typing import Union, ClassVar
-from qm.qua import align, wait, update_frequency
-import numpy as np
 
 __all__ = ["TWPA"]
 
@@ -79,16 +77,13 @@ class TWPA(QuamComponent):
         obj_id = id(self)
         if obj_id in self._initialized_ids:
             return
-        
-        f_p = self.pump_frequency
-        p_p = self.pump_amplitude
-        update_frequency(
-            self.pump.name,
-            f_p+ self.pump.intermediate_frequency,
-        )
-        self.pump.play("pump", amplitude_scale=p_p)
-        # Store object ID externally (won't be serialized)
-        # guarantee initializing twpa pump only once per QUA program execution
+        if self.pump_frequency is not None:
+            self.pump.update_frequency(int(self.pump_frequency - self.pump.LO_frequency))
+        if self.pump_amplitude is not None:
+            self.pump.play("pump", amplitude_scale=self.pump_amplitude)
+        else:
+            self.pump.play("pump")
+
         self._initialized_ids.add(obj_id)
        
 

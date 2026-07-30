@@ -25,6 +25,17 @@ from quam_builder.builder.superconducting.add_transmon_pair_component import (
 from quam_builder.builder.superconducting.add_transmon_resonator_component import (
     add_transmon_resonator_component,
 )
+from quam_builder.builder.superconducting.add_cavity_mode_drive_component import (
+    add_cavity_mode_drive_component,
+)
+from quam_builder.builder.superconducting.add_cavity_sideband_drive_component import (
+    add_cavity_sideband_drive_component,
+)
+from quam_builder.architecture.superconducting.cavity.cavity import Cavity
+from quam_builder.architecture.superconducting.cavity.cavity_mode import CavityMode
+from quam_builder.architecture.superconducting.qubit_pair.cavity_transmon_pair import (
+    CavityTransmonPair,
+)
 from qualang_tools.wirer.connectivity.wiring_spec import WiringLineType
 from quam_builder.architecture.superconducting.qpu import AnyQuam
 
@@ -46,11 +57,21 @@ def build_quam(
     add_ports(machine)
     add_transmons(machine)
     add_twpas(machine)
+    add_cavities(machine)
     add_pulses(machine)
 
     machine.save()
 
     return machine
+
+
+def _create_ports_from_wiring(machine: AnyQuam, wiring_by_line_type):
+    for ports in wiring_by_line_type.values():
+        for port in ports:
+            if "ports" in ports.get_unreferenced_value(port):
+                machine.ports.reference_to_port(
+                    ports.get_unreferenced_value(port), create=True
+                )
 
 
 def add_ports(machine: AnyQuam):
@@ -59,14 +80,15 @@ def add_ports(machine: AnyQuam):
     Args:
         machine (AnyQuam): The QuAM to which the ports will be added.
     """
-    for wiring_by_element in machine.wiring.values():
-        for wiring_by_line_type in wiring_by_element.values():
-            for ports in wiring_by_line_type.values():
-                for port in ports:
-                    if "ports" in ports.get_unreferenced_value(port):
-                        machine.ports.reference_to_port(
-                            ports.get_unreferenced_value(port), create=True
-                        )
+    for element_type, wiring_by_element in machine.wiring.items():
+        if element_type == "cavities":
+            # Cavity wiring has an extra nesting level: cavity_id → mode_name → line_type → port_refs
+            for wiring_by_mode in wiring_by_element.values():
+                for wiring_by_line_type in wiring_by_mode.values():
+                    _create_ports_from_wiring(machine, wiring_by_line_type)
+        else:
+            for wiring_by_line_type in wiring_by_element.values():
+                _create_ports_from_wiring(machine, wiring_by_line_type)
 
 
 def _set_default_grid_location(qubit_number: int, total_number_of_qubits: int) -> str:
@@ -144,6 +166,52 @@ def add_transmons(machine: AnyQuam):
                         raise ValueError(f"Unknown line type: {line_type}")
                     machine.qubit_pairs[transmon_pair.name] = transmon_pair
                     machine.active_qubit_pair_names.append(transmon_pair.name)
+
+        elif element_type in ("cavities", "cavity_transmon_pairs"):
+            pass  # handled by add_cavities()
+
+
+def add_cavities(machine: AnyQuam):
+    """Builds Cavity, CavityMode, and CavityTransmonPair objects from the wiring dict.
+
+    Only runs when the machine has both 'cavities' and 'cavity_transmon_pairs' attributes
+    (i.e. the Quam class mixes in CavityQuam).
+
+    Args:
+        machine (AnyQuam): The QuAM to which the cavity components will be added.
+    """
+    if not hasattr(machine, "cavities") or not hasattr(machine, "cavity_transmon_pairs"):
+        return
+
+    for element_type, wiring_by_element in machine.wiring.items():
+        if element_type == "cavities":
+            for cavity_id, wiring_by_mode in wiring_by_element.items():
+                cavity = Cavity(id=cavity_id)
+                machine.cavities[cavity_id] = cavity
+                for mode_name, wiring_by_line_type in wiring_by_mode.items():
+                    mode = CavityMode(id=mode_name)
+                    setattr(cavity, mode_name, mode)  # sets cavity.alice / cavity.bob
+                    for line_type, ports in wiring_by_line_type.items():
+                        wiring_path = (
+                            f"#/wiring/cavities/{cavity_id}/{mode_name}/{line_type}"
+                        )
+                        if line_type == "cavity":
+                            add_cavity_mode_drive_component(mode, wiring_path, ports)
+
+        elif element_type == "cavity_transmon_pairs":
+            for pair_id, wiring_by_line_type in wiring_by_element.items():
+                # pair_id format: "{qubit_name}_{mode_name}", e.g. "q1_alice"
+                qubit_name, mode_name = pair_id.split("_", 1)
+                pair = CavityTransmonPair(
+                    qubit_name=qubit_name, cavity_mode_name=mode_name
+                )
+                machine.cavity_transmon_pairs[pair_id] = pair
+                for line_type, ports in wiring_by_line_type.items():
+                    wiring_path = (
+                        f"#/wiring/cavity_transmon_pairs/{pair_id}/{line_type}"
+                    )
+                    if line_type == "sideband":
+                        add_cavity_sideband_drive_component(pair, wiring_path, ports)
 
 
 def add_twpas(machine: AnyQuam):

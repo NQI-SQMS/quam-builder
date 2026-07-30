@@ -20,7 +20,10 @@ from qualang_tools.wirer.connectivity.element import (
 )
 from qualang_tools.wirer.connectivity.wiring_spec import WiringLineType
 from qualang_tools.wirer.instruments.instrument_channel import AnyInstrumentChannel
-
+from quam_builder.builder.qop_connectivity.cavity_connectivity import (
+    CAVITY_LINE,
+    SIDEBAND_LINE,
+)
 from quam_builder.builder.qop_connectivity.create_analog_ports import (
     create_octave_port,
     create_mw_fem_port,
@@ -157,6 +160,23 @@ def _create_wiring_legacy(connectivity: Connectivity) -> dict:
                     set_nested_value_with_path(
                         wiring, f"readout/{element_id}/{line_type_value}/{k}", v
                     )
+
+            elif line_type == CAVITY_LINE:
+                # element_id is Reference("c1_alice") → str gives "c1_alice"
+                cavity_id, mode_name = str(element_id).split("_", 1)
+                for k, v in qubit_wiring(channels, element_id, line_type).items():
+                    set_nested_value_with_path(
+                        wiring, f"cavities/{cavity_id}/{mode_name}/cavity/{k}", v
+                    )
+
+            elif line_type == SIDEBAND_LINE:
+                # element_id is Reference("q1_alice") → str gives "q1_alice"
+                pair_id = str(element_id)
+                for k, v in qubit_wiring(channels, element_id, line_type).items():
+                    set_nested_value_with_path(
+                        wiring, f"cavity_transmon_pairs/{pair_id}/sideband/{k}", v
+                    )
+
             else:
                 raise ValueError(f"Unknown line type {line_type}")
 

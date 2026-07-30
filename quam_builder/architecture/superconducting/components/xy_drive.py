@@ -2,6 +2,7 @@ from typing import Optional
 
 from quam.core import quam_dataclass
 from quam.components.channels import IQChannel, MWChannel
+from qualang_tools.units import unit as _unit
 
 from quam_builder.tools.power_tools import (
     calculate_voltage_scaling_factor,
@@ -10,6 +11,8 @@ from quam_builder.tools.power_tools import (
     set_output_power_iq_channel,
     get_output_power_iq_channel,
 )
+
+_OPX_MAX_AMPLITUDE = 0.5
 
 
 __all__ = ["XYDriveIQ", "XYDriveMW"]
@@ -36,6 +39,46 @@ class XYDriveBase:
         float: The voltage scaling factor.
         """
         return calculate_voltage_scaling_factor(fixed_power_dBm, target_power_dBm)
+
+    def set_locked_output_power(self, power_in_dbm: float, operation: Optional[str] = "readout"):
+        """Set output power without changing the channel's Octave gain or full_scale_power_dbm.
+
+        Unlike set_output_power, this locks the current gain/full_scale_power and only
+        adjusts the operation amplitude. Raises ValueError if the target power is
+        unreachable at the current hardware setting.
+        """
+        if hasattr(self, "frequency_converter_up"):
+            gain = self.frequency_converter_up.gain
+            u = _unit(coerce_to_integer=True)
+            amplitude = u.dBm2volts(power_in_dbm - gain)
+            if not -_OPX_MAX_AMPLITUDE <= amplitude < _OPX_MAX_AMPLITUDE:
+                raise ValueError(
+                    f"Reaching {power_in_dbm} dBm on {self.name} at its current Octave gain "
+                    f"of {gain} dB requires an amplitude of {amplitude:.3f} V, which is outside "
+                    f"the OPX+ range [-{_OPX_MAX_AMPLITUDE}, {_OPX_MAX_AMPLITUDE}). Lower the "
+                    f"requested power, or re-run the QUAM population step with a different gain "
+                    f"for this channel."
+                )
+            return self.set_output_power(power_in_dbm=power_in_dbm, gain=gain, operation=operation)
+
+        full_scale_power_dbm = self.opx_output.full_scale_power_dbm
+        amplitude = calculate_voltage_scaling_factor(
+            fixed_power_dBm=full_scale_power_dbm, target_power_dBm=power_in_dbm
+        )
+        if power_in_dbm > full_scale_power_dbm or amplitude > 1:
+            raise ValueError(
+                f"Reaching {power_in_dbm} dBm on {self.name} at its current "
+                f"full_scale_power_dbm of {full_scale_power_dbm} dBm requires an amplitude of "
+                f"{amplitude:.3f}, which exceeds the channel's range. Lower the requested power, "
+                f"or re-run the QUAM population step with a different full_scale_power_dbm for "
+                f"this channel."
+            )
+        return self.set_output_power(
+            power_in_dbm=power_in_dbm,
+            full_scale_power_dbm=full_scale_power_dbm,
+            max_amplitude=1,
+            operation=operation,
+        )
 
 
 @quam_dataclass
