@@ -21,7 +21,7 @@ from qm.qua import align, amp, frame_rotation, play, reset_if_phase, strict_timi
 if TYPE_CHECKING:
     pass  # CavityMode imported only for type hints to avoid circular import
 
-__all__ = ["SNAPGate"]
+__all__ = ["SNAPElementDrive", "SNAPGate"]
 
 _logger = logging.getLogger(__name__)
 
@@ -59,15 +59,72 @@ def _play_displacement(
 
 
 @quam_dataclass
+class SNAPElementDrive(XYDriveIQ):
+    """XYDriveIQ element for a parallel SNAP gate at a fixed Fock level.
+
+    The intermediate frequency is computed live from QUAM references rather than
+    stored as a fixed integer.  This means it automatically stays correct whenever
+    ``chi`` is re-calibrated — no need to recreate the elements.
+
+    Fields ``chi_hz`` and ``delta_f_focka_hz`` should be set as absolute QUAM
+    references when the element is created::
+
+        el = SNAPElementDrive(
+            opx_output_I=qubit.xy.opx_output_I,
+            opx_output_Q=qubit.xy.opx_output_Q,
+            frequency_converter_up=qubit.xy.frequency_converter_up,
+            RF_frequency="#/qubits/q1/xy/RF_frequency",
+            fock_level=k,
+            chi_hz="#/cavity_transmon_pairs/q1_alice/chi",
+            delta_f_focka_hz="#/cavity_transmon_pairs/q1_alice/transitions/f0g1/delta_f_focka",
+        )
+
+    When ``machine.generate_config()`` is called, QUAM resolves the references to
+    their current values and ``inferred_intermediate_frequency`` computes::
+
+        IF = (RF_frequency − LO_frequency) + fock_level × chi + delta_f_focka
+           = qubit_IF + fock_level × chi + delta_f_focka
+
+    Attributes:
+        fock_level: Fock level index (0-based) this element addresses.
+        chi_hz: Per-photon dispersive shift [Hz].  Set as a QUAM reference to
+            ``CavityTransmonPair.chi`` so updates propagate automatically.
+            ``None`` is treated as 0 Hz (vacuum, no shift).
+        delta_f_focka_hz: Kerr correction [Hz] at Fock |fock_level⟩ (deviation
+            from linear chi·n).  Set as a QUAM reference to
+            ``SidebandTransition.delta_f_focka`` for Fock level ``fock_level − 1``
+            (relevant for fock_level > 0).  ``None`` or null in state means 0 Hz
+            (correction not yet calibrated — uses linear chi only).
+    """
+
+    fock_level: int = 0
+    chi_hz: Optional[float] = None
+    delta_f_focka_hz: Optional[float] = None
+
+    @property
+    def inferred_intermediate_frequency(self) -> int:
+        """Compute IF = qubit_base_IF + fock_level × chi + delta_f_focka."""
+        # base_if = RF_frequency (QUAM ref to qubit.xy.RF_frequency) - LO_frequency
+        base_if = super().inferred_intermediate_frequency
+
+        chi_raw = self.chi_hz
+        chi = float(chi_raw) if chi_raw is not None else 0.0
+
+        delta_raw = self.delta_f_focka_hz
+        delta = float(delta_raw) if delta_raw is not None else 0.0
+
+        return int(base_if + self.fock_level * chi + delta)
+
+
+@quam_dataclass
 class SNAPGate(QuamComponent):
     """Parallel SNAP gate for a single cavity mode.
 
-    Each Fock level is assigned a dedicated :class:`XYDriveIQ` element whose
-    intermediate frequency is pre-set to the photon-number-resolved qubit
-    transition (``ge_if_at_fock(qubit, n)``).  All elements share the same
-    physical output port as ``qubit.xy``; their signals sum at the DAC,
-    implementing simultaneous, frequency-division-multiplexed selective pi
-    pulses.
+    Each Fock level is assigned a :class:`SNAPElementDrive` element whose
+    intermediate frequency auto-tracks ``chi`` via QUAM references.  All
+    elements share the same physical output port as ``qubit.xy``; their signals
+    sum at the DAC, implementing simultaneous, frequency-division-multiplexed
+    selective pi pulses.
 
     **Usage in QUA programs**::
 
@@ -79,25 +136,17 @@ class SNAPGate(QuamComponent):
         cavity_mode.snap_gate.apply(thetas=[0, np.pi, np.pi/2],
                                     pair=pair, qubit=qubit)
 
-    **Initialisation** (after chi is calibrated, run the standalone cell in the
-    calibration notebook)::
-
-        snap_gate.snap_elements["n0"] = XYDriveIQ(
-            opx_output_I=qubit.xy.opx_output_I,
-            opx_output_Q=qubit.xy.opx_output_Q,
-            frequency_converter_up=qubit.xy.frequency_converter_up,
-            intermediate_frequency=pair.ge_if_at_fock(qubit, 0),
-        )
-        # repeat for "n1", "n2", …
+    **Initialisation** — run the "Initialise SNAP gate elements" cell in the
+    calibration notebook after chi is calibrated (node 25/28).  Uses
+    :class:`SNAPElementDrive` so the IF stays in sync with future chi updates.
 
     Attributes:
         snap_elements: Dict keyed ``"n0"``, ``"n1"``, … for Fock levels 0, 1, …
-            Each value is an :class:`XYDriveIQ` (or :class:`XYDriveMW`) element
-            whose IF targets the corresponding photon-number-dressed qubit
-            transition.
+            Each value is a :class:`SNAPElementDrive` whose ``chi_hz`` field is a
+            QUAM reference to ``CavityTransmonPair.chi``.
     """
 
-    snap_elements: Dict[str, XYDriveIQ] = field(default_factory=dict)
+    snap_elements: Dict[str, SNAPElementDrive] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Public API
