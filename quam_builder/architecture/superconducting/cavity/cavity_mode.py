@@ -8,8 +8,13 @@ from quam_builder.architecture.superconducting.components.xy_drive import (
     XYDriveIQ,
     XYDriveMW,
 )
+from quam_builder.architecture.superconducting.cavity.cavity_operations import (
+    SNAPGate,
+    _play_displacement,
+)
 
 from qm.qua import (
+    align,
     wait,
     update_frequency,
 )
@@ -56,6 +61,7 @@ class CavityMode(Qubit):
     id: Union[int, str]
 
     cavity_mode_drive: Union[XYDriveIQ, XYDriveMW] = None
+    snap_gate: Optional[SNAPGate] = None
 
     T1: float = None
     T2ramsey: float = None
@@ -100,6 +106,34 @@ class CavityMode(Qubit):
         else:
             return int(self.thermalization_time_factor * 10e-6 * 1e9 / 4) * 4
 
+    def displacement(
+        self,
+        amplitude=None,
+        alpha_re=None,
+        alpha_im=None,
+        length: Optional[int] = None,
+    ) -> None:
+        """Play a displacement pulse on the cavity drive.
+
+        Args:
+            amplitude: Real amplitude scale factor (Python ``float`` or QUA ``fixed``).
+                Used for simple displacements; ignored when *alpha_re* or *alpha_im*
+                is given.
+            alpha_re: In-phase (I) component for complex displacement (Python float or
+                QUA fixed variable).
+            alpha_im: Quadrature (Q) component paired with *alpha_re*.
+            length: Optional pulse duration override in QUA clock cycles (4 ns each).
+
+        Examples::
+
+            # Simple real displacement (D-SNAP step):
+            cavity_mode.displacement(amplitude=amp_scale)
+
+            # Complex displacement (Wigner probe, a_re/a_im are QUA variables):
+            cavity_mode.displacement(alpha_re=a_re, alpha_im=a_im)
+        """
+        _play_displacement(self.cavity_mode_drive, amplitude, alpha_re, alpha_im, length)
+
     def set_gate_shape(self, gate_shape: str) -> None:
         """Set the shape fo the single qubit gates defined as ["x180", "x90" "-x90", "y180", "y90", "-y90"]"""
         for gate in ["x180", "x90", "-x90", "y180", "y90", "-y90"]:
@@ -112,7 +146,7 @@ class CavityMode(Qubit):
 
     def reset(
         self,
-        reset_type: Literal["thermal", "active_sideband"] = "thermal",
+        reset_type: Literal["thermal", "active_sideband", "active_sideband_v2"] = "thermal",
         simulate: bool = False,
         log_callable: Optional[Callable] = None,
         **kwargs,
@@ -136,6 +170,8 @@ class CavityMode(Qubit):
                 self.reset_cavity_thermal()
             elif reset_type == "active_sideband":
                 self.reset_cavity_active_sideband(**kwargs)
+            elif reset_type == "active_sideband_v2":
+                self.reset_cavity_active_sideband_v2(**kwargs)
         else:
             if log_callable is None:
                 log_callable = getLogger(__name__).warning
@@ -248,7 +284,9 @@ class CavityMode(Qubit):
                     flat_top_clk = tr.pi_flat_top_length_ns // 4
 
             # -- Play sideband pulse --------------------------------------------
-            if use_ramps:
+            if pair is not None and use_ramps:
+                pair.play_sideband_flattop(flat_top_duration_clk=flat_top_clk)
+            elif use_ramps:
                 sideband_drive.play("sideband_ramp_up")
                 if flat_top_clk is not None:
                     sideband_drive.play(play_name, duration=flat_top_clk)
@@ -265,6 +303,148 @@ class CavityMode(Qubit):
             wait(2 * qubit_thermalization_time // 4, sideband_drive.name)
 
         # Restore the original IF
+        update_frequency(sideband_drive.name, base_if)
+
+    def reset_cavity_active_sideband_v2(
+        self,
+        sideband_drive,
+        qubit,
+        qubit_thermalization_time: int,
+        f0g1_pi_pulse_name: str = "sideband_square",
+        fock_n: int = 1,
+        sideband_pulse_duration_ns: int = None,
+        chi_hz: float = None,
+        pair=None,
+        n_repeats: int = 3,
+    ):
+        """
+        Actively cool the cavity mode to vacuum using a long sideband pulse followed by
+        repeated (GEF active reset → calibrated f0g1 π → GEF active reset) cycles.
+
+        Protocol per Fock level n = fock_n, …, 1  (transition f{k}g{k+1}, k = n-1):
+          1. Update sideband drive IF to the photon-number-resolved transition.
+          2. Play a long sideband pulse (uses sideband_cooling_time / t95 from node 35 when
+             available, otherwise sideband_pulse_duration_ns or the pulse's own length).
+          3. Repeat n_repeats times:
+               align all elements
+               qubit.reset_qubit_active_gef()   # ensures |g⟩ before π
+               align all elements
+               play calibrated f0g1 π-pulse      # |g,n⟩ → |f,n-1⟩
+               align all elements
+               qubit.reset_qubit_active_gef()   # relaxes |f⟩ → |g⟩ actively
+               align all elements
+        After the loop the sideband drive IF is restored.
+
+        Args:
+            sideband_drive: The sideband drive channel (typically pair.sideband_drive).
+            qubit: The transmon Qubit object; must expose reset_qubit_active_gef().
+            qubit_thermalization_time: Qubit T1-based wait [ns] — kept for API symmetry
+                with reset_cavity_active_sideband; not used for passive waits here.
+            f0g1_pi_pulse_name: Fallback flat-top pulse name when per-level ops are absent.
+            fock_n: Starting photon number. Default is 1.
+            sideband_pulse_duration_ns: Override for the long sideband pulse flat-top [ns].
+                When None the priority is: sideband_cooling_time → pi_flat_top_length_ns →
+                pulse own length. Must be a multiple of 4 ns.
+            chi_hz: Per-photon qubit frequency shift [Hz]. Used as fallback when pair
+                transitions lack calibrated RF frequencies.
+            pair: CavityTransmonPair instance. When provided, calibrated RF frequencies and
+                π-pulse lengths from pair.transitions are used.
+            n_repeats: Number of (GEF reset → π → GEF reset) cycles per Fock level.
+        """
+        base_if = int(sideband_drive.intermediate_frequency)
+        use_ramps = (
+            "sideband_ramp_up" in sideband_drive.operations
+            and "sideband_ramp_down" in sideband_drive.operations
+        )
+
+        chi_step = int(-chi_hz) if chi_hz is not None else 0
+
+        # Build the list of element names needed for alignment
+        qubit_el_names = [qubit.xy.name, qubit.resonator.name]
+        all_el_names = qubit_el_names + [sideband_drive.name]
+
+        for n in range(fock_n, 0, -1):
+            k = n - 1
+            tr_key = f"f{k}g{k+1}"
+            op_name = tr_key + "_pi"
+
+            # -- Resolve target IF ------------------------------------------------
+            target_if = base_if
+            if pair is not None:
+                tr = pair.transitions.get(tr_key)
+                if tr is not None and tr.RF_frequency is not None:
+                    target_if = base_if + int(
+                        float(tr.RF_frequency) - float(sideband_drive.RF_frequency)
+                    )
+            if target_if == base_if and chi_step != 0:
+                target_if = base_if - k * chi_step
+
+            if target_if != base_if:
+                update_frequency(sideband_drive.name, target_if)
+
+            # -- Resolve operation name -------------------------------------------
+            play_name = (
+                op_name if op_name in sideband_drive.operations else f0g1_pi_pulse_name
+            )
+
+            # -- Resolve long-pulse flat-top (clock cycles) -----------------------
+            long_flat_top_clk = None
+            if sideband_pulse_duration_ns is not None:
+                long_flat_top_clk = sideband_pulse_duration_ns // 4
+            elif pair is not None:
+                tr = pair.transitions.get(tr_key)
+                if tr is not None and tr.sideband_cooling_time is not None:
+                    long_flat_top_clk = tr.sideband_cooling_time // 4
+                elif tr is not None and tr.pi_flat_top_length_ns is not None:
+                    long_flat_top_clk = tr.pi_flat_top_length_ns // 4
+
+            # -- Resolve precise π flat-top (clock cycles) ------------------------
+            pi_flat_top_clk = None
+            if pair is not None:
+                tr = pair.transitions.get(tr_key)
+                if tr is not None and tr.pi_flat_top_length_ns is not None:
+                    pi_flat_top_clk = tr.pi_flat_top_length_ns // 4
+
+            # -- Play long sideband pulse -----------------------------------------
+            if pair is not None and use_ramps:
+                pair.play_sideband_flattop(flat_top_duration_clk=long_flat_top_clk)
+            elif use_ramps:
+                sideband_drive.play("sideband_ramp_up")
+                if long_flat_top_clk is not None:
+                    sideband_drive.play(play_name, duration=long_flat_top_clk)
+                else:
+                    sideband_drive.play(play_name)
+                sideband_drive.play("sideband_ramp_down")
+            else:
+                if long_flat_top_clk is not None:
+                    sideband_drive.play(play_name, duration=long_flat_top_clk)
+                else:
+                    sideband_drive.play(play_name)
+
+            # -- n_repeats × (GEF reset → π → GEF reset) -------------------------
+            for _ in range(n_repeats):
+                align(*all_el_names)
+                qubit.reset_qubit_active_gef()
+                align(*all_el_names)
+                if pair is not None and use_ramps:
+                    pair.play_sideband_flattop(flat_top_duration_clk=pi_flat_top_clk)
+                elif use_ramps:
+                    sideband_drive.play("sideband_ramp_up")
+                    if pi_flat_top_clk is not None:
+                        sideband_drive.play(play_name, duration=pi_flat_top_clk)
+                    else:
+                        sideband_drive.play(play_name)
+                    sideband_drive.play("sideband_ramp_down")
+                else:
+                    if pi_flat_top_clk is not None:
+                        sideband_drive.play(play_name, duration=pi_flat_top_clk)
+                    else:
+                        sideband_drive.play(play_name)
+                align(*all_el_names)
+                qubit.reset_qubit_active_gef()
+                align(*all_el_names)
+
+        # Restore original IF
         update_frequency(sideband_drive.name, base_if)
 
     def wait(self, duration: int):
