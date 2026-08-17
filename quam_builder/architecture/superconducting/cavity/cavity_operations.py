@@ -11,9 +11,10 @@ from __future__ import annotations
 import logging
 import numpy as np
 from dataclasses import field
-from typing import TYPE_CHECKING, Dict, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, Optional, Sequence, Union
 
 from quam.core import QuamComponent, quam_dataclass
+from quam.components.channels import MWChannel
 from quam_builder.architecture.superconducting.components.xy_drive import XYDriveIQ, XYDriveMW
 
 from qm.qua import align, amp, frame_rotation, play, reset_if_phase, strict_timing_
@@ -21,7 +22,7 @@ from qm.qua import align, amp, frame_rotation, play, reset_if_phase, strict_timi
 if TYPE_CHECKING:
     pass  # CavityMode imported only for type hints to avoid circular import
 
-__all__ = ["SNAPElementDrive", "SNAPGate"]
+__all__ = ["SNAPElementDrive", "SNAPElementDriveMW", "SNAPGate"]
 
 _logger = logging.getLogger(__name__)
 
@@ -117,6 +118,33 @@ class SNAPElementDrive(XYDriveIQ):
 
 
 @quam_dataclass
+class SNAPElementDriveMW(XYDriveMW):
+    """XYDriveMW element for a parallel SNAP gate at a fixed Fock level (OPX1000 / MW FEM).
+
+    Identical behaviour to :class:`SNAPElementDrive` but inherits from
+    :class:`XYDriveMW` so it generates the correct QM config for MW FEM hardware.
+    Use this class when ``qubit.xy`` is an ``XYDriveMW`` instance.
+
+    See :class:`SNAPElementDrive` for full documentation of the chi-tracking
+    mechanism and how to set the QUAM reference fields.
+    """
+
+    fock_level: int = 0
+    chi_hz: Optional[float] = None
+    delta_f_focka_hz: Optional[float] = None
+
+    @property
+    def inferred_intermediate_frequency(self) -> int:
+        """Compute IF = qubit_base_IF + fock_level × chi + delta_f_focka."""
+        base_if = super().inferred_intermediate_frequency
+        chi_raw = self.chi_hz
+        chi = float(chi_raw) if chi_raw is not None else 0.0
+        delta_raw = self.delta_f_focka_hz
+        delta = float(delta_raw) if delta_raw is not None else 0.0
+        return int(base_if + self.fock_level * chi + delta)
+
+
+@quam_dataclass
 class SNAPGate(QuamComponent):
     """Parallel SNAP gate for a single cavity mode.
 
@@ -146,7 +174,7 @@ class SNAPGate(QuamComponent):
             QUAM reference to ``CavityTransmonPair.chi``.
     """
 
-    snap_elements: Dict[str, SNAPElementDrive] = field(default_factory=dict)
+    snap_elements: Dict[str, Union[SNAPElementDrive, SNAPElementDriveMW]] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Public API
