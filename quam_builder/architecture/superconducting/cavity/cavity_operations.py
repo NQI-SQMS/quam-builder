@@ -108,11 +108,20 @@ class SNAPElementDrive(XYDriveIQ):
         # base_if = RF_frequency (QUAM ref to qubit.xy.RF_frequency) - LO_frequency
         base_if = super().inferred_intermediate_frequency
 
-        chi_raw = self.chi_hz
-        chi = float(chi_raw) if chi_raw is not None else 0.0
+        # Guard against QUAM returning an unresolvable reference string instead of a
+        # float (e.g. when chi or a sideband transition hasn't been calibrated yet).
+        # Treat any non-numeric resolved value as 0 so generate_config() stays valid.
+        try:
+            chi_raw = self.chi_hz
+            chi = float(chi_raw) if chi_raw is not None else 0.0
+        except (TypeError, ValueError):
+            chi = 0.0
 
-        delta_raw = self.delta_f_focka_hz
-        delta = float(delta_raw) if delta_raw is not None else 0.0
+        try:
+            delta_raw = self.delta_f_focka_hz
+            delta = float(delta_raw) if delta_raw is not None else 0.0
+        except (TypeError, ValueError):
+            delta = 0.0
 
         return int(base_if + self.fock_level * chi + delta)
 
@@ -137,10 +146,16 @@ class SNAPElementDriveMW(XYDriveMW):
     def inferred_intermediate_frequency(self) -> int:
         """Compute IF = qubit_base_IF + fock_level × chi + delta_f_focka."""
         base_if = super().inferred_intermediate_frequency
-        chi_raw = self.chi_hz
-        chi = float(chi_raw) if chi_raw is not None else 0.0
-        delta_raw = self.delta_f_focka_hz
-        delta = float(delta_raw) if delta_raw is not None else 0.0
+        try:
+            chi_raw = self.chi_hz
+            chi = float(chi_raw) if chi_raw is not None else 0.0
+        except (TypeError, ValueError):
+            chi = 0.0
+        try:
+            delta_raw = self.delta_f_focka_hz
+            delta = float(delta_raw) if delta_raw is not None else 0.0
+        except (TypeError, ValueError):
+            delta = 0.0
         return int(base_if + self.fock_level * chi + delta)
 
 
@@ -223,8 +238,16 @@ class SNAPGate(QuamComponent):
 
         cavity_mode = self.parent  # CavityMode
         cav_drive = cavity_mode.cavity_mode_drive
-        snap_names = [el.name for el in self.snap_elements.values()]
-        all_names = snap_names + [cav_drive.name, qubit.xy.name]
+        # Only include snap elements that have a non-zero theta in this call.
+        # Passing all snap elements to align() forces the OPX1000 compiler to
+        # allocate hardware slots for every element on the shared port, which
+        # exhausts resources when many snap elements exist (e.g. 10 per mode).
+        active_names = [
+            el.name
+            for n, el in enumerate(self.snap_elements.values())
+            if n < len(thetas) and abs(float(thetas[n])) > 1e-12
+        ]
+        all_names = active_names + [cav_drive.name, qubit.xy.name]
 
         align(*all_names)
 

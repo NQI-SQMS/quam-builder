@@ -190,6 +190,7 @@ class CavityTransmonPair(QuamComponent):
     in sideband/cavity nodes instead of the vacuum readout.threshold when the cavity is not
     in its ground state."""
     parity_time: Optional[float] = None
+    parity_contrast: Optional[float] = None
     sideband_drive: Optional[XYDriveIQ] = None
     transitions: Dict[str, SidebandTransition] = field(default_factory=dict)
     extras: Dict[str, Any] = field(default_factory=dict)
@@ -250,6 +251,45 @@ class CavityTransmonPair(QuamComponent):
         per_level = f"f{k}g{k+1}_pi"
         return per_level if per_level in self.sideband_drive.operations else "sideband_flat_top"
 
+    def play_sideband_flattop(
+        self,
+        flat_top_duration_clk=None,
+        flat_top_duration_ns: Optional[int] = None,
+        amplitude_scale=None,
+    ) -> None:
+        """Play the shaped sideband flat-top pulse inside ``strict_timing_()``.
+
+        Plays ``sideband_ramp_up → sideband_square → sideband_ramp_down`` as a
+        single coherent envelope.  The caller is responsible for setting the
+        sideband drive IF to the correct frequency before this call.
+
+        Args:
+            flat_top_duration_clk: Flat-top duration in QUA clock cycles (4 ns
+                each).  Accepts a Python ``int`` or a QUA variable.  When both
+                this and ``flat_top_duration_ns`` are ``None``, the square pulse
+                is played at its own default length.
+            flat_top_duration_ns: Convenience alternative to
+                ``flat_top_duration_clk``; duration in nanoseconds (must be a
+                multiple of 4).  Converted to clock cycles automatically.
+                Ignored when ``flat_top_duration_clk`` is also supplied.
+            amplitude_scale: Multiplicative amplitude scaling applied uniformly
+                to all three pulses.  Accepts a Python ``float`` or a QUA
+                ``fixed`` variable.  When ``None`` the calibrated amplitudes are
+                used unchanged.
+        """
+        sideband_drive = self.sideband_drive
+
+        if flat_top_duration_clk is None and flat_top_duration_ns is not None:
+            flat_top_duration_clk = flat_top_duration_ns // 4
+
+        with strict_timing_():
+            sideband_drive.play("sideband_ramp_up", amplitude_scale=amplitude_scale)
+            if flat_top_duration_clk is not None:
+                sideband_drive.play("sideband_square", amplitude_scale=amplitude_scale, duration=flat_top_duration_clk)
+            else:
+                sideband_drive.play("sideband_square", amplitude_scale=amplitude_scale)
+            sideband_drive.play("sideband_ramp_down", amplitude_scale=amplitude_scale)
+
     # ------------------------------------------------------------------
     # QUA generation
     # ------------------------------------------------------------------
@@ -284,13 +324,7 @@ class CavityTransmonPair(QuamComponent):
 
             align(qubit.xy.name, sideband_drive.name)
             sideband_drive.update_frequency(target_if_j)
-            with strict_timing_():
-                sideband_drive.play("sideband_ramp_up")
-                if flat_top_clk_j is not None:
-                    sideband_drive.play("sideband_square", duration=flat_top_clk_j)
-                else:
-                    sideband_drive.play("sideband_square")
-                sideband_drive.play("sideband_ramp_down")
+            self.play_sideband_flattop(flat_top_duration_clk=flat_top_clk_j)
 
             align(sideband_drive.name, qubit.xy.name)
 
@@ -349,13 +383,7 @@ class CavityTransmonPair(QuamComponent):
 
             align(qubit.xy.name, sideband_drive.name)
             sideband_drive.update_frequency(target_if_j)
-            with strict_timing_():
-                sideband_drive.play("sideband_ramp_up")
-                if flat_top_clk_j is not None:
-                    sideband_drive.play("sideband_square", duration=flat_top_clk_j)
-                else:
-                    sideband_drive.play("sideband_square")
-                sideband_drive.play("sideband_ramp_down")
+            self.play_sideband_flattop(flat_top_duration_clk=flat_top_clk_j)
 
             align(sideband_drive.name, qubit.xy.name, qubit.resonator.name)
 
@@ -375,13 +403,7 @@ class CavityTransmonPair(QuamComponent):
                         qubit.xy.play("EF_x180")
                     align(qubit.xy.name, sideband_drive.name)
                     sideband_drive.update_frequency(target_if_j)
-                    with strict_timing_():
-                        sideband_drive.play("sideband_ramp_up")
-                        if flat_top_clk_j is not None:
-                            sideband_drive.play("sideband_square", duration=flat_top_clk_j)
-                        else:
-                            sideband_drive.play("sideband_square")
-                        sideband_drive.play("sideband_ramp_down")
+                    self.play_sideband_flattop(flat_top_duration_clk=flat_top_clk_j)
                     align(sideband_drive.name, qubit.xy.name, qubit.resonator.name)
 
             align(sideband_drive.name, qubit.xy.name)
