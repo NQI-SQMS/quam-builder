@@ -19,6 +19,7 @@ Defines the properties and operations associated with individual qubits.
 - **`BaseTransmon`**: An abstract base class for transmon qubits. It includes common attributes like f_01, anharmonicity, T1, and associated components like readout resonators (`rr`) and XY drive lines (`xy`).
 - **`FixedFrequencyTransmon`**: Inherits from `BaseTransmon`. Represents a transmon qubit with a fixed frequency. It typically includes attributes and methods specific to fixed frequency transmons.
 - **`FluxTunableTransmon`**: Inherits from `BaseTransmon`. Represents a transmon qubit whose frequency can be tuned via a flux line. It includes a `FluxLine` component, as well as attributes and methods specific to flux tunable transmons.
+- **`SrfTransmon`** (`qubit/srf_transmon.py`): Inherits from `FixedFrequencyTransmon`. A fixed-frequency transmon coupled to an SRF/3D storage cavity.
 
 ## 3. Components (`architecture/superconducting/components/`)
 
@@ -38,7 +39,23 @@ Defines structures representing pairs of interacting qubits, holding parameters 
 
 - **`FixedFrequencyTransmonPair`**: Represents a pair of interacting fixed-frequency transmons. Contains the control and target qubit components, as well as parameters related to specific two-qubit gate implementations such as `ZZ_drive` or `cross_resonance`.
 - **`FluxTunableTransmonPair`**: Represents a pair of interacting flux-tunable transmons. Contains the control and target qubit components, as well as parameters related to specific two-qubit gate implementations such as `coupler` or `mutual_flux_bias` for instance.
+- **`CavityTransmonPair`** (`qubit_pair/cavity_transmon_pair.py`): Represents a transmon coupled to a storage cavity mode. Holds the `sideband_drive`, Fock-preparation and frequency-shift helpers, parity-time/parity-contrast, and `play_sideband_flattop()` for bosonic-QEC experiments.
+
+## 5. Cavity (`architecture/superconducting/cavity/`)
+
+Defines a storage cavity coupled to a transmon, for bosonic quantum error correction (SRF or 3D microwave cavities).
+
+- **`Cavity`**: Top-level cavity object; holds one or more `CavityMode`s and the qubit-cavity pairs (`CavityTransmonPair`, see above).
+- **`CavityMode`**: A single cavity mode, with `displacement()`, `snap_gate()`, and the `cavity_mode_drive` element.
+- **`SNAPGate`** (`cavity_operations.py`): Orchestrates multi-element SNAP (Selective Number-dependent Arbitrary Phase) pulses for Fock-state preparation.
+- **`SNAPElementDrive` / `SNAPElementDriveMW`** (`cavity_operations.py`): Fock-level-selective drive elements (Octave/IQ and OPX1000/MW-FEM paths respectively) with live chi-tracking via QUAM references.
+
+`components/pulses.py` adds **`SineSqRampPulse`**, used by the cavity displacement/sideband drives.
 
 ---
 
 These architecture classes provide a structured way to represent the physical system and its control parameters within the QUAM framework.
+
+## License
+
+The cavity architecture (section 5, `SrfTransmon`, and `CavityTransmonPair` above) is Fermilab-authored; each of those files carries a license header pointing to the repository root [`LICENSE`](../../../LICENSE). The rest of this directory is Quantum Machines' `quam-builder` project.
