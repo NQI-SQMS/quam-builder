@@ -58,4 +58,4 @@ These architecture classes provide a structured way to represent the physical sy
 
 ## License
 
-The cavity architecture (section 5, `SrfTransmon`, and `CavityTransmonPair` above) is Fermilab-authored; each of those files carries a license header pointing to the repository root [`LICENSE`](../../../LICENSE). The rest of this directory is Quantum Machines' `quam-builder` project.
+Files Fermilab added from scratch carry a license header pointing to [`cavity/LICENSE`](./cavity/LICENSE): `cavity/cavity_operations.py` (SNAPGate, SNAPElementDrive/MW), `components/pulses.py` (SineSqRampPulse), `qubit/srf_transmon.py`, and `qubit_pair/cavity_transmon_pair.py`. `cavity/cavity.py`, `cavity/cavity_mode.py`, and `cavity/__init__.py` originated with Quantum Machines and were substantially extended by Fermilab; they are not separately licensed. The rest of this directory is Quantum Machines' `quam-builder` project.

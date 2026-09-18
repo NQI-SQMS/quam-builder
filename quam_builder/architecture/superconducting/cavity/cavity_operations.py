@@ -1,6 +1,6 @@
 # Copyright 2026 Fermi Forward Discovery Group, LLC.
 # Authors: Leonardo Bove, Taeyoon Kim, Joey Yaker.
-# Licensed under the terms in ../../../../LICENSE (BSD-3-Clause-style, DOE/SQMS-funded work).
+# Licensed under the terms in LICENSE (BSD-3-Clause-style, DOE/SQMS-funded work).
 
 """Cavity QUA operations: displacement pulse and SNAP gate.
 

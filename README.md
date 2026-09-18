@@ -66,7 +66,17 @@ This module focuses on generating the `wiring` part of the QUAM configuration, c
 
 ## License
 
-This repository is Quantum Machines' `quam-builder` project. The SRF cavity architecture added by Fermilab (`quam_builder/architecture/superconducting/cavity/`, `qubit_pair/cavity_transmon_pair.py`, `qubit/srf_transmon.py`, `components/pulses.py`, `builder/superconducting/add_cavity_*_component.py`, `builder/qop_connectivity/cavity_connectivity.py`, `tools/analysis_tools.py`) carries its own license header pointing to the root [`LICENSE`](./LICENSE) file.
+This repository is Quantum Machines' `quam-builder` project. The files below, added from scratch by Fermilab as part of the SRF cavity architecture, carry a license header pointing to [`quam_builder/architecture/superconducting/cavity/LICENSE`](./quam_builder/architecture/superconducting/cavity/LICENSE):
+
+- `quam_builder/architecture/superconducting/cavity/cavity_operations.py`
+- `quam_builder/architecture/superconducting/components/pulses.py`
+- `quam_builder/architecture/superconducting/qubit/srf_transmon.py`
+- `quam_builder/architecture/superconducting/qubit_pair/cavity_transmon_pair.py`
+- `quam_builder/builder/qop_connectivity/cavity_connectivity.py`
+- `quam_builder/builder/superconducting/add_cavity_sideband_drive_component.py`
+- `quam_builder/tools/analysis_tools.py`
+
+Other cavity-related files (`cavity/cavity.py`, `cavity/cavity_mode.py`, `cavity/__init__.py`, `builder/superconducting/add_cavity_mode_drive_component.py`) originated with Quantum Machines and were substantially extended by Fermilab, but are not separately licensed here.
 
 ## Usage Examples
 

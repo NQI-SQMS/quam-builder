@@ -1,7 +1,3 @@
-# Copyright 2026 Fermi Forward Discovery Group, LLC.
-# Authors: Leonardo Bove, Taeyoon Kim, Joey Yaker.
-# Licensed under the terms in ../../../../LICENSE (BSD-3-Clause-style, DOE/SQMS-funded work).
-
 from typing import Callable, Dict, Any, Union, Optional, Literal
 from dataclasses import field
 from logging import getLogger
