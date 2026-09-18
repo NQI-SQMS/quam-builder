@@ -1,3 +1,7 @@
+# Copyright 2026 Fermi Forward Discovery Group, LLC.
+# Authors: Leonardo Bove, Taeyoon Kim, Joey Yaker.
+# Licensed under the terms in ../../LICENSE (BSD-3-Clause-style, DOE/SQMS-funded work).
+
 import numpy as np
 import xarray as xr
 

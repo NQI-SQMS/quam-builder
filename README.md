@@ -64,6 +64,10 @@ This module focuses on generating the `wiring` part of the QUAM configuration, c
 
 * **Helpers (`paths`, `channel_ports`, `get_digital_outputs`):** Utility functions for path finding in connectivity graphs and managing port information.
 
+## License
+
+This repository is Quantum Machines' `quam-builder` project. The SRF cavity architecture added by Fermilab (`quam_builder/architecture/superconducting/cavity/`, `qubit_pair/cavity_transmon_pair.py`, `qubit/srf_transmon.py`, `components/pulses.py`, `builder/superconducting/add_cavity_*_component.py`, `builder/qop_connectivity/cavity_connectivity.py`, `tools/analysis_tools.py`) carries its own license header pointing to the root [`LICENSE`](./LICENSE) file.
+
 ## Usage Examples
 
 Examples for typical wiring configurations can be found in the [qua-platform/qua-libs](https://github.com/qua-platform/qua-libs) GitHub repository in the folder `qualibration_graphs/superconducting/quam_config/wiring_examples` or `qualibration_graphs/nv_center/quam_config/wiring_examples`.

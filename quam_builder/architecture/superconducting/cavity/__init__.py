@@ -1,3 +1,7 @@
+# Copyright 2026 Fermi Forward Discovery Group, LLC.
+# Authors: Leonardo Bove, Taeyoon Kim, Joey Yaker.
+# Licensed under the terms in ../../../../LICENSE (BSD-3-Clause-style, DOE/SQMS-funded work).
+
 from typing import Union
 from quam_builder.architecture.superconducting.cavity.cavity import (
     Cavity,
