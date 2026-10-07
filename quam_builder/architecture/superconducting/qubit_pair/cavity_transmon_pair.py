@@ -48,6 +48,7 @@ class SidebandTransition(QuamComponent):
     8. Node 26h (ef Ramsey @ Fock k)      → refined ``ef_delta_f_focka``
     9. Node 26i (resonator spec @ Fock k) → ``resonator_f_fock_hz``
    10. Node 35  (cavity reset test)        → ``sideband_cooling_time`` (f0g1 only)
+   11. Node 20  (fNgN1 pulse-train fidelity) → ``decay``
 
     Attributes:
         RF_frequency:         Calibrated sideband RF frequency [Hz].
@@ -76,7 +77,9 @@ class SidebandTransition(QuamComponent):
                               bare anharmonicity.  Zero means the ef-ge gap equals α; a
                               non-zero value is the photon-number-dependent Kerr correction
                               to the ef transition.  Calibrated by node 26g.
-        T2_star_ns:           Sideband coherence time T2* [ns].
+        dephasing:            Sideband dephasing time T2* [ns], extracted from the decaying
+                              cosine fit of the sideband Ramsey experiment.  Renamed from
+                              ``T2_star_ns``.  Calibrated by node 26c.
         resonator_f_fock_hz:  Readout resonator RF frequency [Hz] when the storage
                               cavity is in Fock state |k+1⟩.  Tracks the photon-number-
                               dependent frequency shift of the readout resonator due to
@@ -89,6 +92,21 @@ class SidebandTransition(QuamComponent):
                               no explicit duration is passed.  ``None`` until calibrated
                               by node 35.  Currently only populated for the f0g1
                               transition.  Must be a multiple of 4 ns.
+        decay:                Population-decay time constant [ns] of the f{k}g{k+1} SWAP
+                              operation, extracted from the sideband pulse-train fidelity
+                              calibration (Appendix F pulse-train protocol of
+                              `Fast Sideband Control of a Weakly Coupled Multimode Bosonic
+                              Memory <https://arxiv.org/abs/2503.10623>`_): the qubit is
+                              prepared in |f,k⟩ and the calibrated f{k}g{k+1} π-pulse is
+                              applied N times (N even, so the ideal noiseless outcome is
+                              |f,k⟩ for every N); the surviving |f,k⟩ population is fit to
+                              a single exponential decay vs. N, and ``decay`` is that decay
+                              constant converted to a time via the calibrated per-pulse
+                              duration.  Distinct from ``dephasing``: this captures the
+                              amplitude/energy-relaxation-like error accumulated by the
+                              repeated SWAP operation itself, rather than the sideband
+                              transition's intrinsic Ramsey coherence time.  ``None`` until
+                              calibrated by node 20.
     """
 
     RF_frequency: Optional[float] = None
@@ -97,9 +115,10 @@ class SidebandTransition(QuamComponent):
     ge_iq_threshold: Optional[float] = None
     delta_f_focka: Optional[float] = None
     ef_delta_f_focka: Optional[float] = None
-    T2_star_ns: Optional[float] = None
+    dephasing: Optional[float] = None
     resonator_f_fock_hz: Optional[float] = None
     sideband_cooling_time: Optional[int] = None
+    decay: Optional[float] = None
 
 
 @quam_dataclass

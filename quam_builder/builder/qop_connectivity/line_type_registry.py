@@ -17,6 +17,12 @@ from quam_builder.builder.qop_connectivity.concrete_strategies import (
     GlobalElementWiringStrategy,
     ReadoutWiringStrategy,
     TwpaWiringStrategy,
+    CavityModeWiringStrategy,
+    SidebandWiringStrategy,
+)
+from quam_builder.builder.qop_connectivity.cavity_connectivity import (
+    CAVITY_LINE,
+    SIDEBAND_LINE,
 )
 
 
@@ -31,6 +37,8 @@ class ElementCategory(Enum):
     GLOBAL_ELEMENT = "global_element"
     READOUT = "readout"
     TWPA = "twpa"
+    CAVITY = "cavity"
+    SIDEBAND = "sideband"
 
 
 class LineTypeRegistry:
@@ -104,6 +112,13 @@ class LineTypeRegistry:
         for line_type in twpa_lines:
             self.register(line_type, ElementCategory.TWPA)
 
+        # SRF cavity line types - cavity-mode drives and qubit-cavity sideband drives.
+        # These are plain string sentinels from CavityConnectivity (not part of
+        # qualang_tools' WiringLineType), mirroring what the legacy create_wiring
+        # implementation handled via hardcoded CAVITY_LINE/SIDEBAND_LINE branches.
+        self.register(CAVITY_LINE, ElementCategory.CAVITY)
+        self.register(SIDEBAND_LINE, ElementCategory.SIDEBAND)
+
         # Register default strategies
         self._strategy_map = {
             ElementCategory.QUBIT: QubitWiringStrategy,
@@ -111,6 +126,8 @@ class LineTypeRegistry:
             ElementCategory.GLOBAL_ELEMENT: GlobalElementWiringStrategy,
             ElementCategory.READOUT: ReadoutWiringStrategy,
             ElementCategory.TWPA: TwpaWiringStrategy,
+            ElementCategory.CAVITY: CavityModeWiringStrategy,
+            ElementCategory.SIDEBAND: SidebandWiringStrategy,
         }
 
     def register(

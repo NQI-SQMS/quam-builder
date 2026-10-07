@@ -159,6 +159,43 @@ class TwpaWiringStrategy(WiringStrategy):
         return wiring
 
 
+class CavityModeWiringStrategy(WiringStrategy):
+    """Strategy for SRF cavity-mode drive wiring.
+
+    Element IDs are ``"{cavity_id}_{mode_name}"`` (e.g. ``"c1_alice"``), matching
+    ``CavityConnectivity.add_cavity_mode_drive_lines``. Mirrors the legacy
+    ``create_wiring`` implementation's handling of ``CAVITY_LINE``:
+
+        cavities/{cavity_id}/{mode_name}/cavity/{k}
+    """
+
+    def get_base_path(self, context: WiringContext) -> str:
+        cavity_id, mode_name = str(context.element_id).split("_", 1)
+        return f"cavities/{cavity_id}/{mode_name}/cavity"
+
+    def get_additional_references(self, context: WiringContext) -> Dict[str, str]:
+        """Cavity modes need no additional references."""
+        return {}
+
+
+class SidebandWiringStrategy(WiringStrategy):
+    """Strategy for qubit-cavity sideband drive wiring.
+
+    Element IDs are ``"{qubit_name}_{mode_name}"`` pair ids (e.g. ``"q1_alice"``),
+    matching ``CavityConnectivity.add_cavity_sideband_lines``. Mirrors the legacy
+    ``create_wiring`` implementation's handling of ``SIDEBAND_LINE``:
+
+        cavity_transmon_pairs/{pair_id}/sideband/{k}
+    """
+
+    def get_base_path(self, context: WiringContext) -> str:
+        return f"cavity_transmon_pairs/{context.element_id}/sideband"
+
+    def get_additional_references(self, context: WiringContext) -> Dict[str, str]:
+        """Sideband drives need no additional references."""
+        return {}
+
+
 class ReadoutWiringStrategy(WiringStrategy):
     """Strategy for readout wiring.
 
